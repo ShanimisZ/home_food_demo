@@ -2366,7 +2366,13 @@ html>body{padding:0}</style>
     });
     authSubmit.disabled = false;
     if (error) {
-      setAuthMessage('לא הצלחנו לשלוח קישור. ודאו שהחשבון כבר הוזמן ונסו שוב.', true);
+      const isRateLimited = error.status === 429 || /rate|seconds|minute|limit/i.test(error.message || '');
+      setAuthMessage(
+        isRateLimited
+          ? 'נשלחו יותר מדי בקשות. המתינו 60 שניות ונסו שוב פעם אחת.'
+          : `לא הצלחנו לשלוח קישור: ${error.message || 'שגיאה לא ידועה'}`,
+        true
+      );
       return;
     }
     setAuthMessage('הקישור נשלח. אפשר לפתוח את המייל וללחוץ עליו.');
