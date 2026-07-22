@@ -849,6 +849,17 @@ html>body{padding:0}</style>
   .inventory-item-summary { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
   .leftover-meta { color: var(--muted-foreground); font-size: .85rem; }
   .danger-button { color: #b42318; border-color: #fda29b; }
+  .week-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px; }
+  .insight-list, .occasion-list { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+  .insight { padding: 9px 11px; border-radius: 12px; line-height: 1.4; }
+  .insight.warning { background: #fff7ed; color: #9a3412; }
+  .insight.good { background: #ecfdf3; color: #166534; }
+  .ingredient-missing { color: #b42318; font-weight: 700; }
+  .ingredient-retrieve { color: #9a6700; font-weight: 700; }
+  .ingredient-optional { color: var(--muted-foreground); }
+  .occasion-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .occasion-badge { display: inline-flex; margin-top: 6px; border-radius: 999px; padding: 4px 8px; background: #f3e8ff; color: #6b21a8; font-size: .8rem; }
+  .checkin-confirmation { margin-top: 12px; padding: 12px; border-radius: 12px; background: #ecfdf3; color: #166534; }
   @media (max-width: 640px) { .auth-card { padding: 20px; } }
 </style>
 </head>
@@ -2049,6 +2060,8 @@ html>body{padding:0}</style>
   let inventoryItems = [];
   let locations = [];
   let leftovers = [];
+  let specialOccasions = [];
+  let householdMembers = [];
   let preparationTasks = [];
   let availabilityByRecipe = new Map();
   let feedbackByRecipe = new Map();
@@ -2060,6 +2073,7 @@ html>body{padding:0}</style>
   let selectedPlannerCategory = null;
   let shoppingNeedsRefresh = true;
   let refreshShoppingButton = null;
+  let backgroundRefreshStarted = false;
   const plannerDayTypes = new Map();
 
   appNavigation.classList.add('live-top-nav');
@@ -2141,6 +2155,20 @@ html>body{padding:0}</style>
     return tag;
   }
 
+  function ingredientStockState(ingredient) {
+    const stock = inventoryItems.filter(item => item.ingredient_id === ingredient.ingredient_id && (item.quantity === null || Number(item.quantity) > 0));
+    if (!stock.length) return 'missing';
+    return stock.some(item => item.locations?.access_level === 'immediate') ? 'ready' : 'retrieve';
+  }
+
+  function recipeStockDetails(recipeId) {
+    const required = (ingredientsByRecipe.get(recipeId) || []).filter(item => !item.is_optional);
+    return {
+      missing: required.filter(item => ingredientStockState(item) === 'missing'),
+      retrieve: required.filter(item => ingredientStockState(item) === 'retrieve')
+    };
+  }
+
   function renderRecipeFilters() {
     const selected = recipeFilter.value;
     const categories = [...new Set(recipes.map(recipe => categoryLabels[recipe.meal_category] || 'אחר'))];
@@ -2200,10 +2228,19 @@ html>body{padding:0}</style>
       feedback.className = 'text-muted';
       const feedbackItems = feedbackByRecipe.get(recipe.id) || [];
       feedback.textContent = feedbackItems.length ? feedbackItems.map(item => `${item.person_name ? `${item.person_name}: ` : ''}${item.note}`).join(' · ') : 'עדיין אין תגובה משפחתית';
+      const stockNames = document.createElement('span');
+      const stockDetails = recipeStockDetails(recipe.id);
+      if (stockDetails.missing.length) {
+        stockNames.className = 'ingredient-missing';
+        stockNames.textContent = `חסר: ${stockDetails.missing.map(item => item.ingredients?.name || 'מצרך').join(', ')}`;
+      } else if (stockDetails.retrieve.length) {
+        stockNames.className = 'ingredient-retrieve';
+        stockNames.textContent = `צריך להביא: ${stockDetails.retrieve.map(item => item.ingredients?.name || 'מצרך').join(', ')}`;
+      }
       const tags = document.createElement('div');
       tags.className = 'live-tags';
       (tagsByRecipe.get(recipe.id) || []).forEach(item => tags.append(createTag(item.recipe_tags?.name || '', item.recipe_tags?.color)));
-      notes.append(status, feedback, tags);
+      notes.append(status, stockNames, feedback, tags);
 
       const button = document.createElement('button');
       button.className = 'btn btn-primary';
@@ -2264,7 +2301,12 @@ html>body{padding:0}</style>
     ingredientList.className = 'detail-list';
     (ingredientsByRecipe.get(recipe.id) || []).forEach(item => {
       const listItem = document.createElement('li');
-      listItem.textContent = [formatQuantity(item.quantity), item.unit, item.ingredients?.name, item.preparation, item.is_optional ? '(לא חובה)' : ''].filter(Boolean).join(' ');
+      const stockState = ingredientStockState(item);
+      const stockNote = item.is_optional ? '(לא חובה)' : stockState === 'missing' ? '— חסר' : stockState === 'retrieve' ? '— צריך להביא מהמחסן' : '';
+      listItem.textContent = [formatQuantity(item.quantity), item.unit, item.ingredients?.name, item.preparation, stockNote].filter(Boolean).join(' ');
+      if (item.is_optional) listItem.className = 'ingredient-optional';
+      else if (stockState === 'missing') listItem.className = 'ingredient-missing';
+      else if (stockState === 'retrieve') listItem.className = 'ingredient-retrieve';
       ingredientList.append(listItem);
     });
     recipeDetail.append(ingredientTitle, ingredientList);
@@ -2394,10 +2436,30 @@ html>body{padding:0}</style>
     yesterday.setDate(yesterday.getDate() - 1);
     const date = localDateString(yesterday);
     const plans = mealPlans.filter(plan => plan.planned_date === date);
-    if (!plans.length || plans.every(plan => plan.status !== 'planned')) {
+    let confirmation = document.getElementById('yesterday-checkin-confirmation');
+    if (!confirmation) {
+      confirmation = document.createElement('div');
+      confirmation.id = 'yesterday-checkin-confirmation';
+      confirmation.className = 'checkin-confirmation';
+      yesterdayCheckin.after(confirmation);
+    }
+    if (!plans.length) {
       yesterdayCheckin.hidden = true;
+      confirmation.hidden = true;
       return;
     }
+    if (plans.every(plan => plan.status !== 'planned')) {
+      yesterdayCheckin.hidden = true;
+      const responders = [...new Set(plans.map(plan => plan.outcome_recorded_by).filter(Boolean))]
+        .map(userId => householdMembers.find(member => member.user_id === userId)?.display_name)
+        .filter(Boolean);
+      const recordedAt = plans.map(plan => plan.outcome_recorded_at).filter(Boolean).sort().at(-1);
+      const time = recordedAt ? new Intl.DateTimeFormat('he-IL', { hour: '2-digit', minute: '2-digit' }).format(new Date(recordedAt)) : '';
+      confirmation.textContent = `אתמול כבר עודכן${responders.length ? ` על ידי ${responders.join(' ו')}` : ''}${time ? ` בשעה ${time}` : ''}.`;
+      confirmation.hidden = false;
+      return;
+    }
+    confirmation.hidden = true;
     yesterdayCheckin.hidden = false;
     yesterdayCheckin.querySelector('h3').textContent = `מה קרה ${new Intl.DateTimeFormat('he-IL', { weekday: 'long' }).format(yesterday)}?`;
     yesterdayCheckin.querySelector('.text-muted').textContent = 'עוברים על כל הארוחות שתוכננו ורק אז שומרים את היום כולו.';
@@ -2430,18 +2492,24 @@ html>body{padding:0}</style>
     saveButton.addEventListener('click', async () => {
       saveButton.disabled = true;
       setSync('שומר את אתמול…');
-      const results = await Promise.all(plans.map(plan => client.from('meal_plans').update({
-        status: selections.get(plan.id),
-        completed_at: selections.get(plan.id) === 'completed' ? new Date().toISOString() : null
-      }).eq('id', plan.id).eq('household_id', activeHouseholdId)));
+       const results = await Promise.all(plans.map(plan => client.from('meal_plans').update({
+          status: selections.get(plan.id),
+          completed_at: selections.get(plan.id) === 'completed' ? new Date().toISOString() : null,
+          outcome_recorded_at: new Date().toISOString(),
+          outcome_recorded_by: activeUserId
+        }).eq('id', plan.id).eq('household_id', activeHouseholdId)));
       const failure = results.find(result => result.error);
       if (failure) {
         setSync('העדכון לא נשמר', 'error');
         saveButton.disabled = false;
         return;
       }
-      plans.forEach(plan => { plan.status = selections.get(plan.id); });
-      yesterdayCheckin.hidden = true;
+      plans.forEach(plan => {
+        plan.status = selections.get(plan.id);
+        plan.outcome_recorded_at = new Date().toISOString();
+        plan.outcome_recorded_by = activeUserId;
+      });
+      renderYesterdayCheckin();
       setSync('אתמול נשמר', 'ready');
     });
   }
@@ -2683,6 +2751,213 @@ html>body{padding:0}</style>
     return row;
   }
 
+  function occasionDateInWeek(occasion, weekDates) {
+    if (!occasion.repeats_annually) return weekDates.find(date => localDateString(date) === occasion.occasion_date) || null;
+    const [_year, month, day] = occasion.occasion_date.split('-').map(Number);
+    return weekDates.find(date => date.getMonth() + 1 === month && date.getDate() === day) || null;
+  }
+
+  function occasionsForDate(date, weekDates = currentWeekDates()) {
+    return specialOccasions.filter(occasion => {
+      const occurrence = occasionDateInWeek(occasion, weekDates);
+      return occurrence && localDateString(occurrence) === date;
+    });
+  }
+
+  function createOccasionForm(occasion = null) {
+    const form = document.createElement('form');
+    form.className = 'stock-form';
+    const title = document.createElement('input');
+    title.placeholder = 'שם האירוע';
+    title.value = occasion?.title || '';
+    title.required = true;
+    const date = document.createElement('input');
+    date.type = 'date';
+    date.value = occasion?.occasion_date || localDateString(new Date());
+    date.required = true;
+    const type = document.createElement('select');
+    [['birthday', 'יום הולדת'], ['anniversary', 'יום שנה'], ['hosting', 'אירוח'], ['school', 'אירוע בית ספר'], ['holiday', 'חג'], ['other', 'אחר']].forEach(([value, label]) => type.add(new Option(label, value)));
+    type.value = occasion?.occasion_type || 'birthday';
+    const repeatLabel = document.createElement('label');
+    repeatLabel.className = 'form-check';
+    const repeat = document.createElement('input');
+    repeat.type = 'checkbox';
+    repeat.checked = occasion?.repeats_annually || false;
+    repeatLabel.append(repeat, document.createTextNode(' חוזר כל שנה'));
+    const impact = document.createElement('input');
+    impact.className = 'wide';
+    impact.placeholder = 'השפעה על האוכל, למשל ארוחה משפחתית או עוגה';
+    impact.value = occasion?.meal_impact || '';
+    const deadline = document.createElement('input');
+    deadline.type = 'datetime-local';
+    deadline.value = occasion?.preparation_deadline ? occasion.preparation_deadline.slice(0, 16) : '';
+    deadline.setAttribute('aria-label', 'מועד אחרון להכנות');
+    const notes = document.createElement('input');
+    notes.className = 'wide';
+    notes.placeholder = 'הערות';
+    notes.value = occasion?.notes || '';
+    const actions = document.createElement('div');
+    actions.className = 'stock-actions wide';
+    const save = document.createElement('button');
+    save.className = 'btn btn-primary';
+    save.type = 'submit';
+    save.textContent = occasion ? 'שמירת שינויים' : 'הוספת אירוע';
+    const cancel = document.createElement('button');
+    cancel.className = 'btn';
+    cancel.type = 'button';
+    cancel.textContent = 'ביטול';
+    cancel.addEventListener('click', () => { form.hidden = true; });
+    actions.append(save, cancel);
+    form.append(title, date, type, repeatLabel, impact, deadline, notes, actions);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      save.disabled = true;
+      setSync('שומר אירוע…');
+      const payload = {
+        household_id: activeHouseholdId,
+        title: title.value.trim(),
+        occasion_date: date.value,
+        occasion_type: type.value,
+        repeats_annually: repeat.checked,
+        meal_impact: impact.value.trim() || null,
+        preparation_deadline: deadline.value ? new Date(deadline.value).toISOString() : null,
+        notes: notes.value.trim() || null
+      };
+      const query = occasion
+        ? client.from('special_occasions').update(payload).eq('id', occasion.id).eq('household_id', activeHouseholdId)
+        : client.from('special_occasions').insert(payload);
+      const result = await query;
+      if (result.error) {
+        console.error(result.error);
+        setSync('האירוע לא נשמר', 'error');
+        save.disabled = false;
+        return;
+      }
+      await loadHouseholdData();
+      setSync('האירוע נשמר', 'ready');
+    });
+    return form;
+  }
+
+  function renderWeekSummary() {
+    let container = document.getElementById('week-summary-grid');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'week-summary-grid';
+      container.className = 'week-summary-grid';
+      weekGrid.before(container);
+    }
+    container.replaceChildren();
+    const weekDates = currentWeekDates();
+    const weekDateStrings = weekDates.map(localDateString);
+    const plans = mealPlans.filter(plan => weekDateStrings.includes(plan.planned_date));
+    const mainPlans = plans.filter(plan => ['lunch', 'dinner'].includes(plan.meal_slot));
+    const warnings = [];
+    const good = [];
+    const beefCount = mainPlans.filter(plan => plan.main_category === 'beef').length;
+    const fishCount = mainPlans.filter(plan => plan.main_category === 'fish').length;
+    const plantCount = mainPlans.filter(plan => ['vegetarian', 'vegan'].includes(plan.main_category)).length;
+    if (mainPlans.length && !fishCount) warnings.push('לא בחרתם בכלל דגים השבוע.');
+    else good.push(`יש ${fishCount} ארוחות דגים בתכנון — יופי של גיוון.`);
+    if (beefCount > 2) warnings.push(`תכננתם ${beefCount} ארוחות בקר — יותר מהמקסימום שבחרתם.`);
+    else if (beefCount === 2) warnings.push('תכננתם שתי ארוחות בקר; היעד המועדף הוא אחת.');
+    else if (beefCount === 1) good.push('בדיוק ארוחת בקר אחת — בהתאם ליעד השבועי.');
+    const doubleMeatDays = weekDates.filter(dateValue => {
+      const date = localDateString(dateValue);
+      const dayPlans = mainPlans.filter(plan => plan.planned_date === date);
+      return ['lunch', 'dinner'].every(slot => dayPlans.some(plan => plan.meal_slot === slot && ['beef', 'chicken'].includes(plan.main_category)));
+    });
+    doubleMeatDays.forEach(date => warnings.push(`ביום ${new Intl.DateTimeFormat('he-IL', { weekday: 'long' }).format(date)} בחרתם מנה בשרית גם בצהריים וגם בערב; מומלץ לשנות.`));
+    if (mainPlans.length >= 4 && !doubleMeatDays.length) good.push('פיזרתם את הארוחות הבשריות לאורך השבוע בצורה נעימה.');
+    if (plantCount >= 2) good.push(`יש ${plantCount} ארוחות צמחוניות או טבעוניות — בסיס מצוין לשבוע מאוזן.`);
+    const categories = new Set(mainPlans.map(plan => plan.main_category).filter(Boolean));
+    if (categories.size >= 4) good.push('בחרתם מגוון יפה של סוגי ארוחות השבוע.');
+    const shoppingHeavy = mainPlans.filter(plan => plan.recipe_id && availabilityByRecipe.get(plan.recipe_id)?.availability_status === 'shopping_required').length;
+    if (shoppingHeavy >= 3) warnings.push(`${shoppingHeavy} מהארוחות דורשות קניות משמעותיות; אולי כדאי להחליף אחת במתכון מהמלאי.`);
+    const stockFriendly = mainPlans.filter(plan => plan.recipe_id && ['ready_now', 'no_shopping'].includes(availabilityByRecipe.get(plan.recipe_id)?.availability_status)).length;
+    if (stockFriendly >= 3) good.push(`${stockFriendly} ארוחות מנצלות היטב את מה שכבר יש בבית.`);
+    if (!plans.length) good.push('השבוע עדיין פתוח — אפשר להתחיל מהאירועים המיוחדים ואז לבחור את סוגי הארוחות.');
+
+    const insightsCard = document.createElement('div');
+    insightsCard.className = 'card stack';
+    const insightsTitle = document.createElement('h3');
+    insightsTitle.textContent = 'איזון השבוע';
+    const insightsList = document.createElement('ul');
+    insightsList.className = 'insight-list';
+    warnings.forEach(message => {
+      const item = document.createElement('li');
+      item.className = 'insight warning';
+      item.textContent = `⚠️ ${message}`;
+      insightsList.append(item);
+    });
+    good.slice(0, 4).forEach(message => {
+      const item = document.createElement('li');
+      item.className = 'insight good';
+      item.textContent = `✨ ${message}`;
+      insightsList.append(item);
+    });
+    insightsCard.append(insightsTitle, insightsList);
+
+    const occasionsCard = document.createElement('div');
+    occasionsCard.className = 'card stack';
+    const occasionsHeader = document.createElement('div');
+    occasionsHeader.className = 'section-head';
+    const occasionsTitle = document.createElement('h3');
+    occasionsTitle.textContent = 'אירועים מיוחדים השבוע';
+    const add = document.createElement('button');
+    add.className = 'btn btn-primary';
+    add.type = 'button';
+    add.textContent = 'הוספת אירוע';
+    occasionsHeader.append(occasionsTitle, add);
+    const addForm = createOccasionForm();
+    addForm.hidden = true;
+    add.addEventListener('click', () => { addForm.hidden = !addForm.hidden; });
+    const list = document.createElement('ul');
+    list.className = 'occasion-list';
+    const visibleOccasions = specialOccasions.map(occasion => ({ occasion, date: occasionDateInWeek(occasion, weekDates) })).filter(item => item.date).sort((a, b) => a.date - b.date);
+    visibleOccasions.forEach(({ occasion, date }) => {
+      const item = document.createElement('li');
+      item.className = 'occasion-row';
+      const info = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = `${new Intl.DateTimeFormat('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' }).format(date)} · ${occasion.title}`;
+      const details = document.createElement('div');
+      details.className = 'text-muted';
+      details.textContent = [occasion.meal_impact, occasion.preparation_deadline ? `מועד אחרון: ${new Intl.DateTimeFormat('he-IL', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(occasion.preparation_deadline))}` : '', occasion.notes].filter(Boolean).join(' · ');
+      info.append(title, details);
+      const actions = document.createElement('div');
+      actions.className = 'stock-actions';
+      const edit = document.createElement('button');
+      edit.className = 'btn';
+      edit.type = 'button';
+      edit.textContent = 'עריכה';
+      const remove = document.createElement('button');
+      remove.className = 'btn danger-button';
+      remove.type = 'button';
+      remove.textContent = 'מחיקה';
+      actions.append(edit, remove);
+      const editForm = createOccasionForm(occasion);
+      editForm.hidden = true;
+      edit.addEventListener('click', () => { editForm.hidden = !editForm.hidden; });
+      remove.addEventListener('click', async () => {
+        if (!window.confirm(`למחוק את ${occasion.title}?`)) return;
+        const result = await client.from('special_occasions').delete().eq('id', occasion.id).eq('household_id', activeHouseholdId);
+        if (result.error) { setSync('האירוע לא נמחק', 'error'); return; }
+        await loadHouseholdData();
+      });
+      item.append(info, actions, editForm);
+      list.append(item);
+    });
+    if (!visibleOccasions.length) {
+      const empty = document.createElement('li');
+      empty.className = 'text-muted';
+      empty.textContent = 'אין אירועים מיוחדים השבוע.';
+      list.append(empty);
+    }
+    occasionsCard.append(occasionsHeader, addForm, list);
+    container.append(insightsCard, occasionsCard);
+  }
+
   function renderWeeklyPlanner() {
     morningWeek.hidden = true;
     morningWeek.previousElementSibling.hidden = true;
@@ -2691,7 +2966,9 @@ html>body{padding:0}</style>
     weekGrid.className = 'live-week-grid';
     weekGrid.replaceChildren();
     const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
-    currentWeekDates().forEach((dateValue, index) => {
+    const weekDates = currentWeekDates();
+    renderWeekSummary();
+    weekDates.forEach((dateValue, index) => {
       const date = localDateString(dateValue);
       const plansForDay = mealPlans.filter(plan => plan.planned_date === date);
       const storedType = plansForDay[0]?.day_type;
@@ -2709,6 +2986,12 @@ html>body{padding:0}</style>
       dateLabel.className = 'text-muted';
       dateLabel.textContent = new Intl.DateTimeFormat('he-IL', { day: 'numeric', month: 'numeric' }).format(dateValue);
       heading.append(dayName, dateLabel);
+      occasionsForDate(date, weekDates).forEach(occasion => {
+        const badge = document.createElement('span');
+        badge.className = 'occasion-badge';
+        badge.textContent = `🎉 ${occasion.title}`;
+        heading.append(badge);
+      });
       const type = document.createElement('select');
       type.className = 'form-select';
       [['regular', 'יום רגיל'], ['holiday', 'יום חג'], ['day_off', 'יום חופש']].forEach(([value, label]) => type.add(new Option(label, value)));
@@ -2755,7 +3038,8 @@ html>body{padding:0}</style>
       card.append(createMealSlot(date, 'dinner', 'ערב', dayType));
       weekGrid.append(card);
     });
-    const beefMeals = mealPlans.filter(plan => plan.main_category === 'beef').length;
+    const currentWeek = new Set(weekDates.map(localDateString));
+    const beefMeals = mealPlans.filter(plan => currentWeek.has(plan.planned_date) && plan.main_category === 'beef').length;
     document.getElementById('beef-count').textContent = `בשר בקר: ${beefMeals}`;
     document.getElementById('beef-count').classList.toggle('text-destructive', beefMeals > 2);
     const beefBadge = document.getElementById('beef-count');
@@ -3235,7 +3519,7 @@ html>body{padding:0}</style>
     const weekDates = weekDateValues.map(localDateString);
     const rangeStart = new Date(weekDateValues[0]);
     rangeStart.setDate(rangeStart.getDate() - 1);
-    const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, mealPlansResult, preparationsResult] = await Promise.all([
+    const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult] = await Promise.all([
       client.from('recipes').select('*').order('title'),
       client.from('recipe_availability').select('*'),
       client.from('recipe_feedback').select('recipe_id,person_name,sentiment,note,created_at').order('created_at'),
@@ -3244,10 +3528,12 @@ html>body{padding:0}</style>
       client.from('inventory_items').select('id,ingredient_id,location_id,quantity,unit,is_approximate,stocked_at,frozen_at,best_before,notes,ingredients(name,category),locations(id,name,kind,access_level,sort_order)'),
       client.from('locations').select('id,name,kind,access_level,sort_order').order('sort_order'),
       client.from('leftovers').select('id,recipe_id,location_id,name,quantity,unit,is_approximate,prepared_at,frozen_at,best_before,notes,status,locations(id,name,kind,access_level,sort_order),recipes(title)').eq('status', 'active').order('prepared_at', { ascending: false }),
+      client.from('special_occasions').select('*').order('occasion_date'),
+      client.from('household_members').select('user_id,display_name,role').eq('household_id', activeHouseholdId),
       client.from('meal_plans').select('*').gte('planned_date', localDateString(rangeStart)).lte('planned_date', weekDates[6]).order('planned_date'),
       client.from('preparation_tasks').select('*').neq('status', 'cancelled').order('due_at')
     ]);
-    const failure = [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, mealPlansResult, preparationsResult].find(result => result.error);
+    const failure = [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult].find(result => result.error);
     if (failure) throw failure.error;
 
     recipes = recipesResult.data || [];
@@ -3259,6 +3545,8 @@ html>body{padding:0}</style>
     inventoryItems = inventoryResult.data || [];
     locations = locationsResult.data || [];
     leftovers = leftoversResult.data || [];
+    specialOccasions = occasionsResult.data || [];
+    householdMembers = membersResult.data || [];
     preparationTasks = preparationsResult.data || [];
     renderRecipeFilters();
     renderRecipes();
@@ -3266,6 +3554,25 @@ html>body{padding:0}</style>
     renderWeeklyPlanner();
     renderTodayDashboard();
     setSync('הנתונים מעודכנים', 'ready');
+  }
+
+  function startBackgroundRefresh() {
+    if (backgroundRefreshStarted) return;
+    backgroundRefreshStarted = true;
+    let lastRefresh = Date.now();
+    const refresh = async () => {
+      if (!activeHouseholdId || document.visibilityState !== 'visible' || Date.now() - lastRefresh < 15000) return;
+      lastRefresh = Date.now();
+      try {
+        await loadHouseholdData();
+      } catch (error) {
+        console.error(error);
+        setSync('לא הצלחנו לרענן אוטומטית', 'error');
+      }
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    window.setInterval(refresh, 60000);
   }
 
   async function handleSession(session) {
@@ -3292,6 +3599,7 @@ html>body{padding:0}</style>
     showApp(membership.data.display_name);
     try {
       await loadHouseholdData();
+      startBackgroundRefresh();
     } catch (error) {
       setSync('שגיאה בטעינת הנתונים', 'error');
       console.error(error);
