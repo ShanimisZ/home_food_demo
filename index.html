@@ -833,6 +833,22 @@ html>body{padding:0}</style>
   .planner-choice:first-child { border-top: 0; }
   .planner-free-text { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); }
   .planner-saving { opacity: .65; pointer-events: none; }
+  #home-food-trial .live-top-nav { position: sticky; top: 0; z-index: 30; display: flex; gap: 6px; margin: 0 -4px; padding: 8px 4px; background: color-mix(in srgb, var(--background) 92%, transparent); backdrop-filter: blur(12px); overflow-x: auto; flex-wrap: nowrap; box-shadow: 0 1px 0 var(--border); }
+  #home-food-trial .live-top-nav .nav-btn { flex: 0 0 auto; }
+  #home-food-trial .live-top-nav .nav-label { display: inline !important; }
+  .planner-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .shopping-source { color: var(--muted-foreground); font-size: .85rem; }
+  .live-shopping-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; }
+  .live-shopping-row.done { opacity: 1; text-decoration: none; }
+  .stock-form { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; padding: 12px; background: var(--muted); border-radius: 12px; }
+  .stock-form input, .stock-form select { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; background: var(--background); color: var(--foreground); font: inherit; }
+  .stock-form .wide { grid-column: 1 / -1; }
+  .stock-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .inventory-list { display: grid; gap: 8px; padding: 0; list-style: none; }
+  .inventory-item-row, .leftover-row { display: grid; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .inventory-item-summary { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+  .leftover-meta { color: var(--muted-foreground); font-size: .85rem; }
+  .danger-button { color: #b42318; border-color: #fda29b; }
   @media (max-width: 640px) { .auth-card { padding: 20px; } }
 </style>
 </head>
@@ -2018,9 +2034,22 @@ html>body{padding:0}</style>
   const weeklyRecipeList = document.getElementById('weekly-recipe-list');
   const plannerTitle = document.getElementById('picker-title');
   const plannerSuggestion = document.getElementById('recipe-suggestion');
+  const appRoot = document.getElementById('home-food-trial');
+  const appNavigation = appRoot.querySelector('.nav');
+  const appTopline = appRoot.querySelector('.topline');
+  const shoppingCard = appRoot.querySelector('[data-view="shopping"] .card');
+  const shoppingCount = document.getElementById('shopping-count');
+  const todayGrid = appRoot.querySelector('[data-view="today"] .today-grid');
+  const prepList = document.getElementById('prep-list');
+  const prepCount = document.getElementById('prep-count');
+  const yesterdayCheckin = document.getElementById('yesterday-checkin');
 
   let recipes = [];
   let mealPlans = [];
+  let inventoryItems = [];
+  let locations = [];
+  let leftovers = [];
+  let preparationTasks = [];
   let availabilityByRecipe = new Map();
   let feedbackByRecipe = new Map();
   let ingredientsByRecipe = new Map();
@@ -2029,7 +2058,12 @@ html>body{padding:0}</style>
   let activeHouseholdId = null;
   let plannerTarget = null;
   let selectedPlannerCategory = null;
+  let shoppingNeedsRefresh = true;
+  let refreshShoppingButton = null;
   const plannerDayTypes = new Map();
+
+  appNavigation.classList.add('live-top-nav');
+  appTopline.after(appNavigation);
 
   const categoryLabels = {
     chicken: 'עוף', beef: 'בשר', fish: 'דגים', vegetarian: 'צמחוני', vegan: 'טבעוני',
@@ -2294,6 +2328,182 @@ html>body{padding:0}</style>
     return mealPlans.find(plan => plan.planned_date === date && plan.meal_slot === slot);
   }
 
+  const mealSlotLabels = {
+    breakfast_adults: 'בוקר שני וליאור', breakfast_children: 'קופסאות לבנות',
+    family_breakfast: 'ארוחת בוקר משפחתית', lunch: 'צהריים', dinner: 'ערב'
+  };
+
+  function openWeekView() {
+    appRoot.querySelector('.nav-btn[data-target="week"]').click();
+  }
+
+  function createTodayCard(titleText, plans) {
+    const card = document.createElement('div');
+    card.className = 'card meal-card';
+    const header = document.createElement('div');
+    header.className = 'section-head';
+    const title = document.createElement('strong');
+    title.textContent = titleText;
+    const badge = document.createElement('span');
+    badge.className = 'viz-badge';
+    badge.textContent = plans.length ? `${plans.length} מתוכנן` : 'לא תוכנן';
+    header.append(title, badge);
+    card.append(header);
+    if (!plans.length) {
+      const empty = document.createElement('p');
+      empty.className = 'text-muted';
+      empty.textContent = 'עדיין לא בחרתם ארוחה.';
+      const planButton = document.createElement('button');
+      planButton.className = 'btn';
+      planButton.type = 'button';
+      planButton.textContent = 'מעבר לתכנון השבועי';
+      planButton.addEventListener('click', openWeekView);
+      card.append(empty, planButton);
+      return card;
+    }
+    plans.forEach(plan => {
+      const recipe = recipeForPlan(plan);
+      const line = document.createElement('div');
+      line.className = 'detail-block';
+      const planTitle = document.createElement('strong');
+      planTitle.textContent = recipe?.title || plan.free_text || 'ארוחה';
+      const details = document.createElement('span');
+      details.className = 'text-muted';
+      const category = categoryLabels[plan.main_category] || 'אחר';
+      const availability = recipe ? plannerAvailabilityText(recipe) : 'טקסט חופשי';
+      details.textContent = `${mealSlotLabels[plan.meal_slot] || titleText} · ${category} · ${availability}`;
+      line.append(planTitle, details);
+      if (recipe) {
+        const open = document.createElement('button');
+        open.className = 'btn';
+        open.type = 'button';
+        open.textContent = 'פתיחת המתכון';
+        open.addEventListener('click', () => {
+          renderRecipeDetail(recipe);
+          appRoot.querySelector('.nav-btn[data-target="recipes"]').click();
+        });
+        line.append(open);
+      }
+      card.append(line);
+    });
+    return card;
+  }
+
+  function renderYesterdayCheckin() {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const date = localDateString(yesterday);
+    const plans = mealPlans.filter(plan => plan.planned_date === date);
+    if (!plans.length || plans.every(plan => plan.status !== 'planned')) {
+      yesterdayCheckin.hidden = true;
+      return;
+    }
+    yesterdayCheckin.hidden = false;
+    yesterdayCheckin.querySelector('h3').textContent = `מה קרה ${new Intl.DateTimeFormat('he-IL', { weekday: 'long' }).format(yesterday)}?`;
+    yesterdayCheckin.querySelector('.text-muted').textContent = 'עוברים על כל הארוחות שתוכננו ורק אז שומרים את היום כולו.';
+    const list = document.getElementById('day-checkin-list');
+    list.replaceChildren();
+    const selections = new Map();
+    plans.forEach(plan => {
+      const recipe = recipeForPlan(plan);
+      const row = document.createElement('div');
+      row.className = 'meal-line';
+      const label = document.createElement('strong');
+      label.textContent = mealSlotLabels[plan.meal_slot] || 'ארוחה';
+      const name = document.createElement('span');
+      name.textContent = recipe?.title || plan.free_text || 'ללא שם';
+      const outcome = document.createElement('select');
+      outcome.className = 'form-select live-outcome';
+      [['', 'מה קרה?'], ['completed', 'בוצע כמתוכנן'], ['changed', 'אכלנו משהו אחר'], ['takeout', 'הזמנו אוכל'], ['skipped', 'לא אכלנו / דילגנו']].forEach(([value, text]) => outcome.add(new Option(text, value)));
+      outcome.addEventListener('change', () => {
+        if (outcome.value) selections.set(plan.id, outcome.value); else selections.delete(plan.id);
+        saveButton.disabled = selections.size !== plans.length;
+        document.getElementById('checkin-status').textContent = `${selections.size} מתוך ${plans.length}`;
+      });
+      row.append(label, name, outcome);
+      list.append(row);
+    });
+    const oldButton = document.getElementById('save-day-checkin');
+    const saveButton = oldButton.cloneNode(true);
+    oldButton.replaceWith(saveButton);
+    saveButton.disabled = true;
+    saveButton.addEventListener('click', async () => {
+      saveButton.disabled = true;
+      setSync('שומר את אתמול…');
+      const results = await Promise.all(plans.map(plan => client.from('meal_plans').update({
+        status: selections.get(plan.id),
+        completed_at: selections.get(plan.id) === 'completed' ? new Date().toISOString() : null
+      }).eq('id', plan.id).eq('household_id', activeHouseholdId)));
+      const failure = results.find(result => result.error);
+      if (failure) {
+        setSync('העדכון לא נשמר', 'error');
+        saveButton.disabled = false;
+        return;
+      }
+      plans.forEach(plan => { plan.status = selections.get(plan.id); });
+      yesterdayCheckin.hidden = true;
+      setSync('אתמול נשמר', 'ready');
+    });
+  }
+
+  function renderPreparations() {
+    prepList.replaceChildren();
+    const today = localDateString(new Date());
+    const relevant = preparationTasks.filter(task => {
+      if (task.status !== 'pending') return false;
+      const relevantTime = task.scheduled_for || task.due_at;
+      return relevantTime && localDateString(new Date(relevantTime)) <= today;
+    });
+    if (!relevant.length) {
+      const empty = document.createElement('p');
+      empty.className = 'text-muted';
+      empty.textContent = 'אין כרגע משימות הכנה שנקבעו להיום.';
+      prepList.append(empty);
+    } else {
+      relevant.sort((first, second) => new Date(first.due_at) - new Date(second.due_at)).forEach(task => {
+        const row = document.createElement('div');
+        row.className = 'meal-line';
+        const title = document.createElement('strong');
+        title.textContent = task.title;
+        const due = document.createElement('span');
+        due.className = 'text-muted';
+        due.textContent = `מועד אחרון: ${new Intl.DateTimeFormat('he-IL', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(task.due_at))}`;
+        const done = document.createElement('button');
+        done.className = 'btn';
+        done.type = 'button';
+        done.textContent = 'בוצע';
+        done.addEventListener('click', async () => {
+          const result = await client.from('preparation_tasks').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', task.id).eq('household_id', activeHouseholdId);
+          if (result.error) { setSync('ההכנה לא עודכנה', 'error'); return; }
+          task.status = 'completed';
+          renderPreparations();
+          setSync('ההכנה הושלמה', 'ready');
+        });
+        row.append(title, due, done);
+        prepList.append(row);
+      });
+    }
+    prepCount.textContent = `${relevant.length} משימות`;
+    document.getElementById('prep-scheduler').classList.add('hidden');
+    document.getElementById('reminder-button').closest('.viz-controls').hidden = true;
+  }
+
+  function renderTodayDashboard() {
+    const todayValue = new Date();
+    const today = localDateString(todayValue);
+    const plans = mealPlans.filter(plan => plan.planned_date === today);
+    const breakfast = plans.filter(plan => plan.meal_slot.startsWith('breakfast') || plan.meal_slot === 'family_breakfast');
+    todayGrid.replaceChildren(
+      createTodayCard('בוקר', breakfast),
+      createTodayCard('צהריים', plans.filter(plan => plan.meal_slot === 'lunch')),
+      createTodayCard('ערב', plans.filter(plan => plan.meal_slot === 'dinner'))
+    );
+    document.getElementById('view-subtitle').textContent = `${new Intl.DateTimeFormat('he-IL', { weekday: 'long', day: 'numeric', month: 'long' }).format(todayValue)} · לפי התכנון השבועי`;
+    document.getElementById('evening-details').hidden = true;
+    renderPreparations();
+    renderYesterdayCheckin();
+  }
+
   function plannerAvailabilityText(recipe) {
     const availability = availabilityByRecipe.get(recipe.id)?.availability_status || 'shopping_required';
     return availabilityLabels[availability] || availabilityLabels.shopping_required;
@@ -2303,6 +2513,11 @@ html>body{padding:0}</style>
     categoryPicker.classList.add('hidden');
     plannerTarget = null;
     selectedPlannerCategory = null;
+  }
+
+  function markShoppingStale() {
+    shoppingNeedsRefresh = true;
+    if (refreshShoppingButton) refreshShoppingButton.textContent = 'רענון רשימת קניות';
   }
 
   async function saveMealPlan(recipeId, freeText) {
@@ -2331,8 +2546,10 @@ html>body{padding:0}</style>
     }
     mealPlans = mealPlans.filter(plan => !(plan.planned_date === result.data.planned_date && plan.meal_slot === result.data.meal_slot));
     mealPlans.push(result.data);
+    markShoppingStale();
     closePlanner();
     renderWeeklyPlanner();
+    renderTodayDashboard();
     setSync('התכנון נשמר', 'ready');
   }
 
@@ -2348,7 +2565,9 @@ html>body{padding:0}</style>
       return;
     }
     mealPlans = mealPlans.filter(plan => !(plan.planned_date === date && plan.meal_slot === slot));
+    markShoppingStale();
     renderWeeklyPlanner();
+    renderTodayDashboard();
     setSync('התכנון עודכן', 'ready');
   }
 
@@ -2519,7 +2738,9 @@ html>body{padding:0}</style>
           }
           mealPlans.filter(plan => plan.planned_date === date).forEach(plan => { plan.day_type = type.value; });
         }
+        markShoppingStale();
         renderWeeklyPlanner();
+        renderTodayDashboard();
       });
       header.append(heading, type);
       card.append(header);
@@ -2537,23 +2758,431 @@ html>body{padding:0}</style>
     const beefMeals = mealPlans.filter(plan => plan.main_category === 'beef').length;
     document.getElementById('beef-count').textContent = `בשר בקר: ${beefMeals}`;
     document.getElementById('beef-count').classList.toggle('text-destructive', beefMeals > 2);
+    const beefBadge = document.getElementById('beef-count');
+    let actions = beefBadge.closest('.planner-actions');
+    if (!actions) {
+      actions = document.createElement('div');
+      actions.className = 'planner-actions';
+      beefBadge.replaceWith(actions);
+      actions.append(beefBadge);
+    }
+    if (!refreshShoppingButton) {
+      refreshShoppingButton = document.createElement('button');
+      refreshShoppingButton.className = 'btn btn-primary';
+      refreshShoppingButton.type = 'button';
+      refreshShoppingButton.textContent = 'רענון רשימת קניות';
+      refreshShoppingButton.addEventListener('click', () => {
+        renderShoppingList();
+        appRoot.querySelector('.nav-btn[data-target="shopping"]').click();
+      });
+      actions.append(refreshShoppingButton);
+    }
     document.getElementById('close-picker').onclick = closePlanner;
+  }
+
+  function renderShoppingList() {
+    const missing = new Map();
+    mealPlans.filter(plan => plan.recipe_id).forEach(plan => {
+      const recipe = recipeForPlan(plan);
+      (ingredientsByRecipe.get(plan.recipe_id) || []).filter(item => !item.is_optional).forEach(item => {
+        const inStock = inventoryItems.some(stock => stock.ingredient_id === item.ingredient_id && (stock.quantity === null || Number(stock.quantity) > 0));
+        if (inStock) return;
+        const key = `${item.ingredient_id}|${item.unit || ''}`;
+        if (!missing.has(key)) {
+          missing.set(key, { ingredientId: item.ingredient_id, name: item.ingredients?.name || 'מצרך', quantity: 0, hasQuantity: false, unit: item.unit || '', recipes: new Set() });
+        }
+        const entry = missing.get(key);
+        if (item.quantity !== null) {
+          entry.quantity += Number(item.quantity);
+          entry.hasQuantity = true;
+        }
+        if (recipe) entry.recipes.add(recipe.title);
+      });
+    });
+
+    shoppingCard.querySelectorAll('.shopping-item').forEach(item => item.closest('label')?.remove());
+    shoppingCard.querySelectorAll('.live-shopping-row, .notice').forEach(item => item.remove());
+    const entries = [...missing.values()].sort((first, second) => first.name.localeCompare(second.name, 'he'));
+    entries.forEach(entry => {
+      const row = document.createElement('label');
+      row.className = 'form-check live-shopping-row';
+      const checkbox = document.createElement('input');
+      checkbox.className = 'form-check-input shopping-item';
+      checkbox.type = 'checkbox';
+      const textWrap = document.createElement('span');
+      textWrap.className = 'form-check-label compact';
+      const text = document.createElement('span');
+      const amount = entry.hasQuantity ? `${formatQuantity(entry.quantity)} ${entry.unit}`.trim() : '';
+      text.textContent = [entry.name, amount].filter(Boolean).join(' · ');
+      const source = document.createElement('span');
+      source.className = 'shopping-source';
+      source.textContent = `עבור: ${[...entry.recipes].join(', ')}`;
+      textWrap.append(text, source);
+      row.append(checkbox, textWrap);
+      const purchaseForm = createStockForm({
+        quantity: entry.hasQuantity ? entry.quantity : 1,
+        unit: entry.unit,
+        saveLabel: 'הוספה למלאי',
+        onCancel: () => { checkbox.checked = false; },
+        onSave: async values => {
+          const existing = inventoryItems.find(item => item.ingredient_id === entry.ingredientId && item.location_id === values.locationId && (item.unit || '') === values.unit);
+          let savedItem;
+          if (existing) {
+            const quantity = Number(existing.quantity || 0) + values.quantity;
+            const result = await client.from('inventory_items').update({ quantity, stocked_at: localDateString(new Date()) }).eq('id', existing.id).eq('household_id', activeHouseholdId).select('id').single();
+            if (result.error) throw result.error;
+            savedItem = result.data;
+          } else {
+            const result = await client.from('inventory_items').insert({
+              household_id: activeHouseholdId,
+              ingredient_id: entry.ingredientId,
+              location_id: values.locationId,
+              quantity: values.quantity,
+              unit: values.unit || null,
+              stocked_at: localDateString(new Date())
+            }).select('id').single();
+            if (result.error) throw result.error;
+            savedItem = result.data;
+          }
+          const eventResult = await client.from('inventory_events').insert({
+            household_id: activeHouseholdId,
+            ingredient_id: entry.ingredientId,
+            inventory_item_id: savedItem.id,
+            location_id: values.locationId,
+            event_type: 'purchase',
+            quantity: values.quantity,
+            unit: values.unit || null,
+            notes: `נוסף מרשימת הקניות: ${entry.name}`
+          });
+          if (eventResult.error) throw eventResult.error;
+          await loadHouseholdData();
+          renderShoppingList();
+        }
+      });
+      purchaseForm.hidden = true;
+      row.append(purchaseForm);
+      checkbox.addEventListener('change', () => {
+        purchaseForm.hidden = !checkbox.checked;
+      });
+      shoppingCard.append(row);
+    });
+    const freeTextMeals = mealPlans.filter(plan => !plan.recipe_id && plan.free_text).length;
+    const notice = document.createElement('p');
+    notice.className = 'notice';
+    notice.textContent = freeTextMeals
+      ? `יש ${freeTextMeals} ארוחות בטקסט חופשי שצריך לבדוק עבורן קניות ידנית.`
+      : entries.length ? 'הרשימה מבוססת על המתכונים שנבחרו מול המלאי הנוכחי.' : 'לפי המתכונים שנבחרו, לא חסרים כרגע מצרכים שמופיעים במלאי.';
+    shoppingCard.append(notice);
+    shoppingCount.textContent = `${entries.length} פריטים`;
+    shoppingNeedsRefresh = false;
+    if (refreshShoppingButton) refreshShoppingButton.textContent = 'רשימת הקניות מעודכנת ✓';
+  }
+
+  function createStockForm({ quantity = 1, unit = '', locationId = '', notes = '', bestBefore = '', saveLabel = 'שמירה', onSave, onCancel }) {
+    const form = document.createElement('form');
+    form.className = 'stock-form';
+    const quantityInput = document.createElement('input');
+    quantityInput.type = 'number';
+    quantityInput.min = '0.001';
+    quantityInput.step = '0.001';
+    quantityInput.value = formatQuantity(quantity) || '1';
+    quantityInput.required = true;
+    quantityInput.setAttribute('aria-label', 'כמות');
+    const unitInput = document.createElement('input');
+    unitInput.value = unit || '';
+    unitInput.placeholder = 'יחידה, למשל ק״ג או חבילה';
+    unitInput.setAttribute('aria-label', 'יחידה');
+    const locationSelect = document.createElement('select');
+    locationSelect.required = true;
+    locationSelect.add(new Option('בחירת מקום אחסון', ''));
+    locations.forEach(location => locationSelect.add(new Option(location.name, location.id)));
+    locationSelect.value = locationId || '';
+    const bestBeforeInput = document.createElement('input');
+    bestBeforeInput.type = 'date';
+    bestBeforeInput.value = bestBefore || '';
+    bestBeforeInput.setAttribute('aria-label', 'לשימוש עד');
+    const notesInput = document.createElement('input');
+    notesInput.className = 'wide';
+    notesInput.value = notes || '';
+    notesInput.placeholder = 'הערה (לא חובה)';
+    const actions = document.createElement('div');
+    actions.className = 'stock-actions wide';
+    const save = document.createElement('button');
+    save.className = 'btn btn-primary';
+    save.type = 'submit';
+    save.textContent = saveLabel;
+    const cancel = document.createElement('button');
+    cancel.className = 'btn';
+    cancel.type = 'button';
+    cancel.textContent = 'ביטול';
+    cancel.addEventListener('click', () => {
+      form.hidden = true;
+      if (onCancel) onCancel();
+    });
+    actions.append(save, cancel);
+    form.append(quantityInput, unitInput, locationSelect, bestBeforeInput, notesInput, actions);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const parsedQuantity = Number(quantityInput.value);
+      if (!locationSelect.value || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0) return;
+      save.disabled = true;
+      setSync('שומר במלאי…');
+      try {
+        await onSave({
+          quantity: parsedQuantity,
+          unit: unitInput.value.trim(),
+          locationId: locationSelect.value,
+          bestBefore: bestBeforeInput.value || null,
+          notes: notesInput.value.trim() || null
+        });
+        setSync('המלאי עודכן', 'ready');
+      } catch (error) {
+        console.error(error);
+        setSync('העדכון לא נשמר', 'error');
+        save.disabled = false;
+      }
+    });
+    return form;
+  }
+
+  async function removeInventoryItem(item, eventType) {
+    const eventResult = await client.from('inventory_events').insert({
+      household_id: activeHouseholdId,
+      ingredient_id: item.ingredient_id,
+      inventory_item_id: item.id,
+      location_id: item.location_id,
+      event_type: eventType,
+      quantity: item.quantity,
+      unit: item.unit,
+      notes: eventType === 'spoiled' ? 'הוסר מהמלאי כי התקלקל' : 'הוסר מהמלאי כי נגמר'
+    });
+    if (eventResult.error) throw eventResult.error;
+    const deleteResult = await client.from('inventory_items').delete().eq('id', item.id).eq('household_id', activeHouseholdId);
+    if (deleteResult.error) throw deleteResult.error;
+    await loadHouseholdData();
+  }
+
+  function createInventoryRow(item) {
+    const row = document.createElement('li');
+    row.className = 'inventory-item-row';
+    const summary = document.createElement('div');
+    summary.className = 'inventory-item-summary';
+    const text = document.createElement('span');
+    const amount = [item.is_approximate ? 'בערך' : '', formatQuantity(item.quantity), item.unit].filter(Boolean).join(' ');
+    text.textContent = [item.ingredients?.name || 'פריט', amount, item.notes].filter(Boolean).join(' · ');
+    const edit = document.createElement('button');
+    edit.className = 'btn';
+    edit.type = 'button';
+    edit.textContent = 'עריכה';
+    summary.append(text, edit);
+    const form = createStockForm({
+      quantity: item.quantity || 1,
+      unit: item.unit,
+      locationId: item.location_id,
+      notes: item.notes,
+      bestBefore: item.best_before,
+      onSave: async values => {
+        const moved = values.locationId !== item.location_id;
+        const result = await client.from('inventory_items').update({
+          quantity: values.quantity,
+          unit: values.unit || null,
+          location_id: values.locationId,
+          best_before: values.bestBefore,
+          notes: values.notes
+        }).eq('id', item.id).eq('household_id', activeHouseholdId);
+        if (result.error) throw result.error;
+        const eventResult = await client.from('inventory_events').insert({
+          household_id: activeHouseholdId,
+          ingredient_id: item.ingredient_id,
+          inventory_item_id: item.id,
+          location_id: values.locationId,
+          event_type: moved ? 'move' : 'adjust',
+          quantity: values.quantity,
+          unit: values.unit || null,
+          notes: values.notes
+        });
+        if (eventResult.error) throw eventResult.error;
+        await loadHouseholdData();
+      }
+    });
+    form.hidden = true;
+    const actions = form.querySelector('.stock-actions');
+    [['נגמר', 'consume'], ['התקלקל', 'spoiled']].forEach(([label, eventType]) => {
+      const button = document.createElement('button');
+      button.className = `btn ${eventType === 'spoiled' ? 'danger-button' : ''}`;
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', async () => {
+        if (!window.confirm(`${label}: להסיר את ${item.ingredients?.name || 'הפריט'} מהמלאי?`)) return;
+        try {
+          setSync('מעדכן מלאי…');
+          await removeInventoryItem(item, eventType);
+          setSync('המלאי עודכן', 'ready');
+        } catch (error) {
+          console.error(error);
+          setSync('העדכון לא נשמר', 'error');
+        }
+      });
+      actions.insertBefore(button, actions.lastElementChild);
+    });
+    edit.addEventListener('click', () => { form.hidden = !form.hidden; });
+    row.append(summary, form);
+    return row;
+  }
+
+  async function closeLeftover(leftover, status) {
+    const result = await client.from('leftovers').update({ status }).eq('id', leftover.id).eq('household_id', activeHouseholdId);
+    if (result.error) throw result.error;
+    const eventResult = await client.from('inventory_events').insert({
+      household_id: activeHouseholdId,
+      leftover_id: leftover.id,
+      location_id: leftover.location_id,
+      event_type: status === 'discarded' ? 'leftover_discarded' : 'leftover_finished',
+      quantity: leftover.quantity,
+      unit: leftover.unit,
+      notes: leftover.name
+    });
+    if (eventResult.error) throw eventResult.error;
+    await loadHouseholdData();
+  }
+
+  function createLeftoversSection() {
+    const section = document.createElement('div');
+    section.className = 'card stack inventory-section';
+    section.dataset.location = 'leftovers';
+    const header = document.createElement('div');
+    header.className = 'section-head';
+    const title = document.createElement('h3');
+    title.textContent = '🍲 שאריות';
+    const add = document.createElement('button');
+    add.className = 'btn btn-primary';
+    add.type = 'button';
+    add.textContent = 'הוספת שאריות';
+    header.append(title, add);
+    const addForm = createStockForm({
+      quantity: 1,
+      unit: 'מנות',
+      saveLabel: 'שמירת שאריות',
+      onSave: async values => {
+        const name = nameInput.value.trim();
+        if (!name) throw new Error('Missing leftover name');
+        const result = await client.from('leftovers').insert({
+          household_id: activeHouseholdId,
+          name,
+          quantity: values.quantity,
+          unit: values.unit || 'מנות',
+          location_id: values.locationId,
+          prepared_at: localDateString(new Date()),
+          best_before: values.bestBefore,
+          notes: values.notes
+        }).select('id').single();
+        if (result.error) throw result.error;
+        const eventResult = await client.from('inventory_events').insert({
+          household_id: activeHouseholdId,
+          leftover_id: result.data.id,
+          location_id: values.locationId,
+          event_type: 'leftover_added',
+          quantity: values.quantity,
+          unit: values.unit || 'מנות',
+          notes: name
+        });
+        if (eventResult.error) throw eventResult.error;
+        await loadHouseholdData();
+      }
+    });
+    const nameInput = document.createElement('input');
+    nameInput.className = 'wide';
+    nameInput.placeholder = 'מה נשאר?';
+    nameInput.required = true;
+    addForm.insertBefore(nameInput, addForm.firstChild);
+    addForm.hidden = true;
+    add.addEventListener('click', () => { addForm.hidden = !addForm.hidden; });
+    const list = document.createElement('ul');
+    list.className = 'inventory-list';
+    leftovers.forEach(leftover => {
+      const row = document.createElement('li');
+      row.className = 'leftover-row';
+      const summary = document.createElement('div');
+      summary.className = 'inventory-item-summary';
+      const info = document.createElement('div');
+      const name = document.createElement('strong');
+      name.textContent = leftover.name;
+      const meta = document.createElement('div');
+      meta.className = 'leftover-meta';
+      meta.textContent = [
+        `${formatQuantity(leftover.quantity)} ${leftover.unit || ''}`.trim(),
+        leftover.locations?.name,
+        leftover.best_before ? `מומלץ עד ${new Intl.DateTimeFormat('he-IL').format(new Date(`${leftover.best_before}T12:00:00`))}` : '',
+        leftover.notes
+      ].filter(Boolean).join(' · ');
+      info.append(name, meta);
+      const edit = document.createElement('button');
+      edit.className = 'btn';
+      edit.type = 'button';
+      edit.textContent = 'עריכה';
+      summary.append(info, edit);
+      const form = createStockForm({
+        quantity: leftover.quantity,
+        unit: leftover.unit,
+        locationId: leftover.location_id,
+        notes: leftover.notes,
+        bestBefore: leftover.best_before,
+        onSave: async values => {
+          const result = await client.from('leftovers').update({
+            quantity: values.quantity,
+            unit: values.unit || 'מנות',
+            location_id: values.locationId,
+            best_before: values.bestBefore,
+            notes: values.notes
+          }).eq('id', leftover.id).eq('household_id', activeHouseholdId);
+          if (result.error) throw result.error;
+          await loadHouseholdData();
+        }
+      });
+      form.hidden = true;
+      const actions = form.querySelector('.stock-actions');
+      [['נגמר', 'finished'], ['התקלקל', 'discarded']].forEach(([label, status]) => {
+        const button = document.createElement('button');
+        button.className = `btn ${status === 'discarded' ? 'danger-button' : ''}`;
+        button.type = 'button';
+        button.textContent = label;
+        button.addEventListener('click', async () => {
+          if (!window.confirm(`${label}: להסיר את השאריות מהרשימה?`)) return;
+          try {
+            setSync('מעדכן שאריות…');
+            await closeLeftover(leftover, status);
+            setSync('השאריות עודכנו', 'ready');
+          } catch (error) {
+            console.error(error);
+            setSync('העדכון לא נשמר', 'error');
+          }
+        });
+        actions.insertBefore(button, actions.lastElementChild);
+      });
+      edit.addEventListener('click', () => { form.hidden = !form.hidden; });
+      row.append(summary, form);
+      list.append(row);
+    });
+    if (!leftovers.length) {
+      const empty = document.createElement('li');
+      empty.className = 'text-muted';
+      empty.textContent = 'אין כרגע שאריות במלאי.';
+      list.append(empty);
+    }
+    section.append(header, addForm, list);
+    return section;
   }
 
   function renderInventory(items) {
     inventoryGrid.replaceChildren();
     inventoryFilters.replaceChildren();
-    const locations = new Map();
-    items.forEach(item => {
-      if (item.locations) locations.set(item.locations.id, item.locations);
-    });
     const allButton = document.createElement('button');
     allButton.className = 'btn btn-primary';
     allButton.type = 'button';
     allButton.dataset.location = 'all';
     allButton.textContent = 'הכול';
     inventoryFilters.append(allButton);
-    [...locations.values()].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).forEach(location => {
+    locations.forEach(location => {
       const button = document.createElement('button');
       button.className = 'btn';
       button.type = 'button';
@@ -2561,8 +3190,14 @@ html>body{padding:0}</style>
       button.textContent = location.name;
       inventoryFilters.append(button);
     });
+    const leftoversButton = document.createElement('button');
+    leftoversButton.className = 'btn';
+    leftoversButton.type = 'button';
+    leftoversButton.dataset.location = 'leftovers';
+    leftoversButton.textContent = `שאריות (${leftovers.length})`;
+    inventoryFilters.append(leftoversButton);
 
-    [...locations.values()].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).forEach(location => {
+    locations.forEach(location => {
       const section = document.createElement('div');
       section.className = 'card stack inventory-section';
       section.dataset.location = location.id;
@@ -2577,14 +3212,12 @@ html>body{padding:0}</style>
       const list = document.createElement('ul');
       list.className = 'inventory-list';
       items.filter(item => item.location_id === location.id).sort((a, b) => (a.ingredients?.name || '').localeCompare(b.ingredients?.name || '', 'he')).forEach(item => {
-        const listItem = document.createElement('li');
-        const amount = [item.is_approximate ? 'בערך' : '', formatQuantity(item.quantity), item.unit].filter(Boolean).join(' ');
-        listItem.textContent = [item.ingredients?.name || 'פריט', amount, item.notes].filter(Boolean).join(' · ');
-        list.append(listItem);
+        list.append(createInventoryRow(item));
       });
       section.append(header, list);
       inventoryGrid.append(section);
     });
+    inventoryGrid.append(createLeftoversSection());
 
     inventoryFilters.onclick = event => {
       const button = event.target.closest('button[data-location]');
@@ -2598,17 +3231,23 @@ html>body{padding:0}</style>
 
   async function loadHouseholdData() {
     setSync('טוען נתונים…');
-    const weekDates = currentWeekDates().map(localDateString);
-    const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, mealPlansResult] = await Promise.all([
+    const weekDateValues = currentWeekDates();
+    const weekDates = weekDateValues.map(localDateString);
+    const rangeStart = new Date(weekDateValues[0]);
+    rangeStart.setDate(rangeStart.getDate() - 1);
+    const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, mealPlansResult, preparationsResult] = await Promise.all([
       client.from('recipes').select('*').order('title'),
       client.from('recipe_availability').select('*'),
       client.from('recipe_feedback').select('recipe_id,person_name,sentiment,note,created_at').order('created_at'),
-      client.from('recipe_ingredients').select('recipe_id,quantity,unit,preparation,is_optional,sort_order,ingredients(name)').order('sort_order'),
+      client.from('recipe_ingredients').select('recipe_id,ingredient_id,quantity,unit,preparation,is_optional,sort_order,ingredients(name)').order('sort_order'),
       client.from('recipe_tag_links').select('recipe_id,recipe_tags(name,color)'),
       client.from('inventory_items').select('id,ingredient_id,location_id,quantity,unit,is_approximate,stocked_at,frozen_at,best_before,notes,ingredients(name,category),locations(id,name,kind,access_level,sort_order)'),
-      client.from('meal_plans').select('*').gte('planned_date', weekDates[0]).lte('planned_date', weekDates[6]).order('planned_date')
+      client.from('locations').select('id,name,kind,access_level,sort_order').order('sort_order'),
+      client.from('leftovers').select('id,recipe_id,location_id,name,quantity,unit,is_approximate,prepared_at,frozen_at,best_before,notes,status,locations(id,name,kind,access_level,sort_order),recipes(title)').eq('status', 'active').order('prepared_at', { ascending: false }),
+      client.from('meal_plans').select('*').gte('planned_date', localDateString(rangeStart)).lte('planned_date', weekDates[6]).order('planned_date'),
+      client.from('preparation_tasks').select('*').neq('status', 'cancelled').order('due_at')
     ]);
-    const failure = [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, mealPlansResult].find(result => result.error);
+    const failure = [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, mealPlansResult, preparationsResult].find(result => result.error);
     if (failure) throw failure.error;
 
     recipes = recipesResult.data || [];
@@ -2617,10 +3256,15 @@ html>body{padding:0}</style>
     ingredientsByRecipe = groupBy(ingredientsResult.data || [], 'recipe_id');
     tagsByRecipe = groupBy(tagsResult.data || [], 'recipe_id');
     mealPlans = mealPlansResult.data || [];
+    inventoryItems = inventoryResult.data || [];
+    locations = locationsResult.data || [];
+    leftovers = leftoversResult.data || [];
+    preparationTasks = preparationsResult.data || [];
     renderRecipeFilters();
     renderRecipes();
-    renderInventory(inventoryResult.data || []);
+    renderInventory(inventoryItems);
     renderWeeklyPlanner();
+    renderTodayDashboard();
     setSync('הנתונים מעודכנים', 'ready');
   }
 
