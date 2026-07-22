@@ -913,6 +913,16 @@ html>body{padding:0}</style>
   .leftover-meta { color: var(--muted-foreground); font-size: .85rem; }
   .danger-button { color: #b42318; border-color: #fda29b; }
   .week-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px; }
+  .week-navigator { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px; margin-bottom: 16px; }
+  .week-navigator-copy { text-align: center; }
+  .week-navigator-copy strong, .week-navigator-copy span { display: block; }
+  .week-navigator-actions { display: flex; gap: 6px; }
+  .week-navigator-actions .btn { white-space: nowrap; }
+  .flexible-projects-card { margin-bottom: 16px; }
+  .flexible-project-form { display: grid; grid-template-columns: minmax(170px, 1.2fr) minmax(170px, 1fr) minmax(180px, 1fr) auto; gap: 8px; align-items: end; }
+  .flexible-project-wide { grid-column: span 2; }
+  .flexible-project-list { display: grid; gap: 8px; }
+  .flexible-project-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 11px 0; border-top: 1px solid var(--border); }
   .insight-list, .occasion-list { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
   .insight { padding: 9px 11px; border-radius: 12px; line-height: 1.4; }
   .insight.warning { background: #fff7ed; color: #9a3412; }
@@ -937,6 +947,10 @@ html>body{padding:0}</style>
     #home-food-trial .live-top-nav .nav-btn { min-height: 52px; flex-direction: column; gap: 2px; padding: 5px 3px; font-size: .74rem; }
     #home-food-trial .live-top-nav .nav-btn svg { width: 18px; height: 18px; }
     #home-food-trial .meal-card { min-height: 0; }
+    .week-navigator { grid-template-columns: 1fr; }
+    .week-navigator-actions { justify-content: center; }
+    .flexible-project-form, .flexible-project-row { grid-template-columns: 1fr; }
+    .flexible-project-wide { grid-column: 1; }
     .auth-card { padding: 22px; }
   }
 </style>
@@ -2153,6 +2167,7 @@ html>body{padding:0}</style>
   let shoppingNeedsRefresh = true;
   let refreshShoppingButton = null;
   let backgroundRefreshStarted = false;
+  let visibleWeekOffset = 0;
   const plannerDayTypes = new Map();
 
   appNavigation.classList.add('live-top-nav');
@@ -2647,14 +2662,19 @@ html>body{padding:0}</style>
     return `${year}-${month}-${day}`;
   }
 
-  function currentWeekDates() {
+  function weekDatesForOffset(offset = 0) {
     const today = new Date();
     const sunday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay());
+    sunday.setDate(sunday.getDate() + (offset * 7));
     return Array.from({ length: 7 }, (_item, index) => {
       const date = new Date(sunday);
       date.setDate(sunday.getDate() + index);
       return date;
     });
+  }
+
+  function currentWeekDates() {
+    return weekDatesForOffset(visibleWeekOffset);
   }
 
   function recipeForPlan(plan) {
@@ -2957,13 +2977,14 @@ html>body{padding:0}</style>
     return result.data;
   }
 
-  async function addShoppingLines(text, mealPlanId = null) {
+  async function addShoppingLines(text, mealPlanId = null, notes = null) {
     const names = text.split(/\r?\n|,/).map(item => item.trim()).filter(Boolean);
     if (!names.length) return;
     const result = await client.from('shopping_items').insert(names.map(name => ({
       household_id: activeHouseholdId,
       meal_plan_id: mealPlanId,
-      name
+      name,
+      notes
     })));
     if (result.error) throw result.error;
   }
@@ -3367,6 +3388,269 @@ html>body{padding:0}</style>
     return form;
   }
 
+  function renderWeekNavigator() {
+    let navigator = document.getElementById('week-navigator');
+    if (!navigator) {
+      navigator = document.createElement('div');
+      navigator.id = 'week-navigator';
+      navigator.className = 'card week-navigator';
+      weekGrid.before(navigator);
+    }
+    navigator.replaceChildren();
+    const previous = document.createElement('button');
+    previous.className = `btn${visibleWeekOffset === -1 ? ' btn-primary' : ''}`;
+    previous.type = 'button';
+    previous.textContent = 'שבוע קודם';
+    const copy = document.createElement('div');
+    copy.className = 'week-navigator-copy';
+    const title = document.createElement('strong');
+    title.textContent = visibleWeekOffset === 0 ? 'השבוע' : visibleWeekOffset === 1 ? 'השבוע הבא' : 'השבוע הקודם';
+    const dates = currentWeekDates();
+    const range = document.createElement('span');
+    range.className = 'text-muted';
+    range.textContent = `${new Intl.DateTimeFormat('he-IL', { day: 'numeric', month: 'short' }).format(dates[0])}–${new Intl.DateTimeFormat('he-IL', { day: 'numeric', month: 'short', year: 'numeric' }).format(dates[6])}`;
+    copy.append(title, range);
+    const actions = document.createElement('div');
+    actions.className = 'week-navigator-actions';
+    const current = document.createElement('button');
+    current.className = `btn${visibleWeekOffset === 0 ? ' btn-primary' : ''}`;
+    current.type = 'button';
+    current.textContent = 'השבוע';
+    const next = document.createElement('button');
+    next.className = `btn${visibleWeekOffset === 1 ? ' btn-primary' : ''}`;
+    next.type = 'button';
+    next.textContent = 'שבוע הבא';
+    const showWeek = offset => {
+      if (visibleWeekOffset === offset) return;
+      visibleWeekOffset = offset;
+      closePlanner();
+      markShoppingStale();
+      renderWeeklyPlanner();
+      renderShoppingList();
+    };
+    previous.addEventListener('click', () => showWeek(-1));
+    current.addEventListener('click', () => showWeek(0));
+    next.addEventListener('click', () => showWeek(1));
+    actions.append(current, next);
+    navigator.append(previous, copy, actions);
+  }
+
+  function flexibleProjectDueDate(weekDates) {
+    const due = new Date(weekDates[6]);
+    due.setHours(23, 59, 0, 0);
+    return due;
+  }
+
+  function renderFlexibleProjects(weekDates) {
+    let card = document.getElementById('flexible-projects-card');
+    if (!card) {
+      card = document.createElement('section');
+      card.id = 'flexible-projects-card';
+      card.className = 'card stack flexible-projects-card';
+      weekGrid.before(card);
+    }
+    card.replaceChildren();
+    const header = document.createElement('div');
+    header.className = 'section-head';
+    const heading = document.createElement('div');
+    heading.className = 'compact';
+    const title = document.createElement('h3');
+    title.textContent = 'דברים שנרצה להכין השבוע';
+    const description = document.createElement('p');
+    description.className = 'text-muted';
+    description.textContent = 'גלידה, עוגיות או כל פרויקט מטבח שלא שייך לארוחה מסוימת. אפשר להשאיר גמיש ולקבוע זמן אחר כך.';
+    heading.append(title, description);
+    const add = document.createElement('button');
+    add.className = 'btn btn-primary';
+    add.type = 'button';
+    add.textContent = 'הוספת דבר להכנה';
+    header.append(heading, add);
+
+    const form = document.createElement('form');
+    form.className = 'flexible-project-form';
+    form.hidden = true;
+    const recipeLabel = document.createElement('label');
+    recipeLabel.className = 'form-label';
+    recipeLabel.textContent = 'מתכון (לא חובה)';
+    const recipeSelect = document.createElement('select');
+    recipeSelect.className = 'form-select';
+    recipeSelect.add(new Option('רעיון חופשי — ללא מתכון', ''));
+    recipes.forEach(recipe => recipeSelect.add(new Option(recipe.title, recipe.id)));
+    recipeLabel.append(recipeSelect);
+    const nameLabel = document.createElement('label');
+    nameLabel.className = 'form-label';
+    nameLabel.textContent = 'מה נכין?';
+    const name = document.createElement('input');
+    name.className = 'form-control';
+    name.required = true;
+    name.placeholder = 'למשל גלידה ביתית';
+    nameLabel.append(name);
+    const scheduleLabel = document.createElement('label');
+    scheduleLabel.className = 'form-label';
+    scheduleLabel.textContent = 'מתי נכין? (לא חובה)';
+    const schedule = document.createElement('input');
+    schedule.className = 'form-control';
+    schedule.type = 'datetime-local';
+    scheduleLabel.append(schedule);
+    const save = document.createElement('button');
+    save.className = 'btn btn-primary';
+    save.type = 'submit';
+    save.textContent = 'שמירה';
+    const notesLabel = document.createElement('label');
+    notesLabel.className = 'form-label flexible-project-wide';
+    notesLabel.textContent = 'הערות (לא חובה)';
+    const notes = document.createElement('input');
+    notes.className = 'form-control';
+    notes.placeholder = 'למשל להכין עם הבנות';
+    notesLabel.append(notes);
+    const shoppingLabel = document.createElement('label');
+    shoppingLabel.className = 'form-label flexible-project-wide';
+    shoppingLabel.textContent = 'מה צריך לקנות? (לא חובה)';
+    const shopping = document.createElement('input');
+    shopping.className = 'form-control';
+    shopping.placeholder = 'אפשר להפריד פריטים בפסיקים';
+    shoppingLabel.append(shopping);
+    recipeSelect.addEventListener('change', () => {
+      const recipe = recipes.find(item => item.id === recipeSelect.value);
+      if (recipe && !name.value.trim()) name.value = recipe.title;
+    });
+    form.append(recipeLabel, nameLabel, scheduleLabel, save, notesLabel, shoppingLabel);
+    add.addEventListener('click', () => {
+      form.hidden = !form.hidden;
+      if (!form.hidden) name.focus();
+    });
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const due = flexibleProjectDueDate(weekDates);
+      const scheduled = schedule.value ? new Date(schedule.value) : null;
+      if (scheduled && scheduled > due) {
+        setSync('זמן ההכנה צריך להיות בתוך השבוע שבחרתם', 'error');
+        return;
+      }
+      save.disabled = true;
+      const result = await client.from('preparation_tasks').insert({
+        household_id: activeHouseholdId,
+        meal_plan_id: null,
+        recipe_id: recipeSelect.value || null,
+        title: name.value.trim(),
+        scheduled_for: scheduled ? scheduled.toISOString() : null,
+        due_at: due.toISOString(),
+        notes: notes.value.trim() || null,
+        status: 'pending'
+      }).select('*').single();
+      if (result.error) {
+        console.error(result.error);
+        setSync('הדבר להכנה לא נשמר', 'error');
+        save.disabled = false;
+        return;
+      }
+      preparationTasks.push(result.data);
+      if (shopping.value.trim()) {
+        try {
+          await addShoppingLines(shopping.value, null, `עבור: ${name.value.trim()}`);
+          const shoppingResult = await client.from('shopping_items').select('*').is('purchased_at', null).order('created_at');
+          if (!shoppingResult.error) shoppingItems = shoppingResult.data || [];
+        } catch (error) {
+          console.error(error);
+          setSync('ההכנה נשמרה, אבל פריטי הקניות לא נשמרו', 'error');
+        }
+      }
+      markShoppingStale();
+      renderWeeklyPlanner();
+      renderTodayDashboard();
+      renderShoppingList();
+      setSync('נוסף לדברים שנרצה להכין', 'ready');
+    });
+
+    const list = document.createElement('div');
+    list.className = 'flexible-project-list';
+    const weekStrings = new Set(weekDates.map(localDateString));
+    const projects = preparationTasks.filter(task => !task.meal_plan_id && task.status === 'pending' && task.due_at && weekStrings.has(localDateString(new Date(task.due_at))));
+    projects.forEach(task => {
+      const row = document.createElement('div');
+      row.className = 'flexible-project-row';
+      const info = document.createElement('div');
+      info.className = 'compact';
+      const projectTitle = document.createElement('strong');
+      projectTitle.textContent = task.title;
+      const recipe = recipes.find(item => item.id === task.recipe_id);
+      const timing = document.createElement('span');
+      timing.className = 'text-muted';
+      timing.textContent = task.scheduled_for
+        ? `נקבע ל${new Intl.DateTimeFormat('he-IL', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(task.scheduled_for))}`
+        : 'גמיש — אפשר לקבוע זמן בהמשך';
+      const meta = document.createElement('span');
+      meta.className = 'text-muted';
+      meta.textContent = [recipe ? `מתכון: ${recipe.title}` : '', task.notes || ''].filter(Boolean).join(' · ');
+      info.append(projectTitle, timing);
+      if (meta.textContent) info.append(meta);
+      const actions = document.createElement('div');
+      actions.className = 'stock-actions';
+      const scheduleButton = document.createElement('button');
+      scheduleButton.className = 'btn';
+      scheduleButton.type = 'button';
+      scheduleButton.textContent = task.scheduled_for ? 'שינוי זמן' : 'קביעת זמן';
+      const done = document.createElement('button');
+      done.className = 'btn btn-primary';
+      done.type = 'button';
+      done.textContent = 'בוצע';
+      const remove = document.createElement('button');
+      remove.className = 'btn danger-button';
+      remove.type = 'button';
+      remove.textContent = 'מחיקה';
+      const scheduler = document.createElement('form');
+      scheduler.className = 'stock-actions';
+      scheduler.style.gridColumn = '1 / -1';
+      scheduler.hidden = true;
+      const time = document.createElement('input');
+      time.className = 'form-control';
+      time.type = 'datetime-local';
+      time.required = true;
+      time.value = dateTimeLocalValue(task.scheduled_for);
+      const saveTime = document.createElement('button');
+      saveTime.className = 'btn btn-primary';
+      saveTime.type = 'submit';
+      saveTime.textContent = 'שמירת זמן';
+      scheduler.append(time, saveTime);
+      scheduleButton.addEventListener('click', () => { scheduler.hidden = !scheduler.hidden; });
+      scheduler.addEventListener('submit', async event => {
+        event.preventDefault();
+        const value = new Date(time.value);
+        if (value > new Date(task.due_at)) { setSync('הזמן צריך להיות בתוך השבוע שבחרתם', 'error'); return; }
+        const result = await client.from('preparation_tasks').update({ scheduled_for: value.toISOString() }).eq('id', task.id).eq('household_id', activeHouseholdId).select('*').single();
+        if (result.error) { setSync('הזמן לא נשמר', 'error'); return; }
+        Object.assign(task, result.data);
+        renderWeeklyPlanner();
+        renderTodayDashboard();
+        setSync('זמן ההכנה נשמר', 'ready');
+      });
+      done.addEventListener('click', async () => {
+        const result = await client.from('preparation_tasks').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', task.id).eq('household_id', activeHouseholdId);
+        if (result.error) { setSync('ההכנה לא עודכנה', 'error'); return; }
+        task.status = 'completed';
+        renderWeeklyPlanner();
+        renderTodayDashboard();
+      });
+      remove.addEventListener('click', async () => {
+        const result = await client.from('preparation_tasks').update({ status: 'cancelled' }).eq('id', task.id).eq('household_id', activeHouseholdId);
+        if (result.error) { setSync('ההכנה לא נמחקה', 'error'); return; }
+        task.status = 'cancelled';
+        renderWeeklyPlanner();
+        renderTodayDashboard();
+      });
+      actions.append(scheduleButton, done, remove);
+      row.append(info, actions, scheduler);
+      list.append(row);
+    });
+    if (!projects.length) {
+      const empty = document.createElement('p');
+      empty.className = 'text-muted';
+      empty.textContent = 'עדיין לא הוספתם דברים גמישים להכנה השבוע.';
+      list.append(empty);
+    }
+    card.append(header, form, list);
+  }
+
   function renderWeekSummary() {
     let container = document.getElementById('week-summary-grid');
     if (!container) {
@@ -3495,7 +3779,9 @@ html>body{padding:0}</style>
     weekGrid.replaceChildren();
     const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
     const weekDates = currentWeekDates();
+    renderWeekNavigator();
     renderWeekSummary();
+    renderFlexibleProjects(weekDates);
     weekDates.forEach((dateValue, index) => {
       const date = localDateString(dateValue);
       const plansForDay = mealPlans.filter(plan => plan.planned_date === date);
@@ -3607,9 +3893,14 @@ html>body{padding:0}</style>
 
   function renderShoppingList() {
     const missing = new Map();
-    mealPlans.filter(plan => plan.recipe_id).forEach(plan => {
-      const recipe = recipeForPlan(plan);
-      (ingredientsByRecipe.get(plan.recipe_id) || []).filter(item => !item.is_optional).forEach(item => {
+    const visibleWeek = new Set(currentWeekDates().map(localDateString));
+    const visiblePlans = mealPlans.filter(plan => visibleWeek.has(plan.planned_date));
+    const recipeSources = visiblePlans.filter(plan => plan.recipe_id).map(plan => ({ recipeId: plan.recipe_id, title: recipeForPlan(plan)?.title }));
+    preparationTasks
+      .filter(task => !task.meal_plan_id && task.recipe_id && task.status === 'pending' && task.due_at && visibleWeek.has(localDateString(new Date(task.due_at))))
+      .forEach(task => recipeSources.push({ recipeId: task.recipe_id, title: recipes.find(recipe => recipe.id === task.recipe_id)?.title || task.title }));
+    recipeSources.forEach(source => {
+      (ingredientsByRecipe.get(source.recipeId) || []).filter(item => !item.is_optional).forEach(item => {
         const inStock = inventoryItems.some(stock => stock.ingredient_id === item.ingredient_id && (stock.quantity === null || Number(stock.quantity) > 0));
         if (inStock) return;
         const key = `${item.ingredient_id}|${item.unit || ''}`;
@@ -3621,11 +3912,12 @@ html>body{padding:0}</style>
           entry.quantity += Number(item.quantity);
           entry.hasQuantity = true;
         }
-        if (recipe) entry.recipes.add(recipe.title);
+        if (source.title) entry.recipes.add(source.title);
       });
     });
 
-    shoppingItems.forEach(item => {
+    const visiblePlanIds = new Set(visiblePlans.map(plan => plan.id));
+    shoppingItems.filter(item => !item.meal_plan_id || visiblePlanIds.has(item.meal_plan_id)).forEach(item => {
       missing.set(`manual|${item.id}`, {
         ingredientId: null,
         shoppingItemId: item.id,
@@ -4176,10 +4468,11 @@ html>body{padding:0}</style>
 
   async function loadHouseholdData() {
     setSync('טוען נתונים…');
-    const weekDateValues = currentWeekDates();
-    const weekDates = weekDateValues.map(localDateString);
-    const rangeStart = new Date(weekDateValues[0]);
+    const previousWeekValues = weekDatesForOffset(-1);
+    const nextWeekValues = weekDatesForOffset(1);
+    const rangeStart = new Date(previousWeekValues[0]);
     rangeStart.setDate(rangeStart.getDate() - 1);
+    const rangeEnd = nextWeekValues[6];
     const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult, shoppingResult] = await Promise.all([
       client.from('recipes').select('*').order('title'),
       client.from('recipe_availability').select('*'),
@@ -4191,7 +4484,7 @@ html>body{padding:0}</style>
       client.from('leftovers').select('id,recipe_id,location_id,name,quantity,unit,is_approximate,prepared_at,frozen_at,best_before,notes,status,locations(id,name,kind,access_level,sort_order),recipes(title)').eq('status', 'active').order('prepared_at', { ascending: false }),
       client.from('special_occasions').select('*').order('occasion_date'),
       client.from('household_members').select('user_id,display_name,role').eq('household_id', activeHouseholdId),
-      client.from('meal_plans').select('*').gte('planned_date', localDateString(rangeStart)).lte('planned_date', weekDates[6]).order('planned_date'),
+      client.from('meal_plans').select('*').gte('planned_date', localDateString(rangeStart)).lte('planned_date', localDateString(rangeEnd)).order('planned_date'),
       client.from('preparation_tasks').select('*').neq('status', 'cancelled').order('due_at'),
       client.from('shopping_items').select('*').is('purchased_at', null).order('created_at')
     ]);
