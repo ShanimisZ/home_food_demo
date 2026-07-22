@@ -823,6 +823,16 @@ html>body{padding:0}</style>
   .live-tag { display: inline-flex; border-radius: 999px; padding: 3px 8px; background: var(--muted); color: var(--muted-foreground); font-size: .8rem; }
   .detail-list { margin: 0; padding-inline-start: 22px; line-height: 1.7; }
   .detail-block { display: grid; gap: 6px; }
+  .live-week-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+  .live-day-card { display: grid; gap: 12px; align-content: start; }
+  .live-day-header { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+  .live-day-header .form-select { width: auto; min-width: 112px; }
+  .live-meal-slot { display: grid; grid-template-columns: minmax(80px, .7fr) minmax(0, 2fr) auto; gap: 8px; align-items: center; padding-top: 10px; border-top: 1px solid var(--border); }
+  .live-meal-slot .btn { min-width: 0; text-align: right; overflow-wrap: anywhere; }
+  .planner-choice { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
+  .planner-choice:first-child { border-top: 0; }
+  .planner-free-text { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .planner-saving { opacity: .65; pointer-events: none; }
   @media (max-width: 640px) { .auth-card { padding: 20px; } }
 </style>
 </head>
@@ -2001,13 +2011,25 @@ html>body{padding:0}</style>
   const availabilityFilter = document.getElementById('availability-filter');
   const inventoryGrid = document.querySelector('.inventory-grid');
   const inventoryFilters = document.getElementById('inventory-filters');
+  const weekGrid = document.getElementById('week-grid');
+  const morningWeek = document.getElementById('morning-week');
+  const categoryPicker = document.getElementById('category-picker');
+  const categoryOptions = document.getElementById('category-options');
+  const weeklyRecipeList = document.getElementById('weekly-recipe-list');
+  const plannerTitle = document.getElementById('picker-title');
+  const plannerSuggestion = document.getElementById('recipe-suggestion');
 
   let recipes = [];
+  let mealPlans = [];
   let availabilityByRecipe = new Map();
   let feedbackByRecipe = new Map();
   let ingredientsByRecipe = new Map();
   let tagsByRecipe = new Map();
   let activeUserId = null;
+  let activeHouseholdId = null;
+  let plannerTarget = null;
+  let selectedPlannerCategory = null;
+  const plannerDayTypes = new Map();
 
   const categoryLabels = {
     chicken: 'עוף', beef: 'בשר', fish: 'דגים', vegetarian: 'צמחוני', vegan: 'טבעוני',
@@ -2247,6 +2269,277 @@ html>body{padding:0}</style>
     return '🏠';
   }
 
+  function localDateString(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function currentWeekDates() {
+    const today = new Date();
+    const sunday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay());
+    return Array.from({ length: 7 }, (_item, index) => {
+      const date = new Date(sunday);
+      date.setDate(sunday.getDate() + index);
+      return date;
+    });
+  }
+
+  function recipeForPlan(plan) {
+    return plan?.recipe_id ? recipes.find(recipe => recipe.id === plan.recipe_id) : null;
+  }
+
+  function planFor(date, slot) {
+    return mealPlans.find(plan => plan.planned_date === date && plan.meal_slot === slot);
+  }
+
+  function plannerAvailabilityText(recipe) {
+    const availability = availabilityByRecipe.get(recipe.id)?.availability_status || 'shopping_required';
+    return availabilityLabels[availability] || availabilityLabels.shopping_required;
+  }
+
+  function closePlanner() {
+    categoryPicker.classList.add('hidden');
+    plannerTarget = null;
+    selectedPlannerCategory = null;
+  }
+
+  async function saveMealPlan(recipeId, freeText) {
+    if (!plannerTarget || !activeHouseholdId) return;
+    categoryPicker.classList.add('planner-saving');
+    setSync('שומר תכנון…');
+    const payload = {
+      household_id: activeHouseholdId,
+      planned_date: plannerTarget.date,
+      meal_slot: plannerTarget.slot,
+      day_type: plannerTarget.dayType,
+      main_category: selectedPlannerCategory || 'other',
+      recipe_id: recipeId || null,
+      free_text: freeText || null,
+      status: 'planned'
+    };
+    const result = await client.from('meal_plans')
+      .upsert(payload, { onConflict: 'household_id,planned_date,meal_slot' })
+      .select('*')
+      .single();
+    categoryPicker.classList.remove('planner-saving');
+    if (result.error) {
+      setSync('התכנון לא נשמר', 'error');
+      plannerSuggestion.textContent = `לא הצלחנו לשמור: ${result.error.message}`;
+      return;
+    }
+    mealPlans = mealPlans.filter(plan => !(plan.planned_date === result.data.planned_date && plan.meal_slot === result.data.meal_slot));
+    mealPlans.push(result.data);
+    closePlanner();
+    renderWeeklyPlanner();
+    setSync('התכנון נשמר', 'ready');
+  }
+
+  async function deleteMealPlan(date, slot) {
+    setSync('מעדכן תכנון…');
+    const result = await client.from('meal_plans')
+      .delete()
+      .eq('household_id', activeHouseholdId)
+      .eq('planned_date', date)
+      .eq('meal_slot', slot);
+    if (result.error) {
+      setSync('לא הצלחנו למחוק', 'error');
+      return;
+    }
+    mealPlans = mealPlans.filter(plan => !(plan.planned_date === date && plan.meal_slot === slot));
+    renderWeeklyPlanner();
+    setSync('התכנון עודכן', 'ready');
+  }
+
+  function renderPlannerChoices(category) {
+    selectedPlannerCategory = category;
+    weeklyRecipeList.replaceChildren();
+    const matchingRecipes = recipes
+      .filter(recipe => category === 'other' || recipe.meal_category === category)
+      .sort((first, second) => {
+        const rank = { ready_now: 0, no_shopping: 1, small_top_up: 2, shopping_required: 3 };
+        const firstRank = rank[availabilityByRecipe.get(first.id)?.availability_status] ?? 4;
+        const secondRank = rank[availabilityByRecipe.get(second.id)?.availability_status] ?? 4;
+        return firstRank - secondRank || first.title.localeCompare(second.title, 'he');
+      });
+    matchingRecipes.forEach(recipe => {
+      const row = document.createElement('div');
+      row.className = 'planner-choice';
+      const details = document.createElement('div');
+      details.className = 'compact';
+      const title = document.createElement('strong');
+      title.textContent = recipe.title;
+      const status = document.createElement('span');
+      status.className = 'text-muted';
+      status.textContent = `${plannerAvailabilityText(recipe)} · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`;
+      details.append(title, status);
+      const choose = document.createElement('button');
+      choose.className = 'btn btn-primary';
+      choose.type = 'button';
+      choose.textContent = 'בחירה';
+      choose.addEventListener('click', () => saveMealPlan(recipe.id, null));
+      row.append(details, choose);
+      weeklyRecipeList.append(row);
+    });
+
+    const freeText = document.createElement('div');
+    freeText.className = 'planner-free-text';
+    const label = document.createElement('label');
+    label.className = 'form-label';
+    label.textContent = 'או משהו שלא נמצא במתכונים';
+    const input = document.createElement('input');
+    input.className = 'form-control';
+    input.type = 'text';
+    input.placeholder = 'לדוגמה: שאריות, אוכל בחוץ או ארוחה אצל סבתא';
+    label.append(input);
+    const save = document.createElement('button');
+    save.className = 'btn';
+    save.type = 'button';
+    save.textContent = 'שמירת טקסט חופשי';
+    save.addEventListener('click', () => {
+      const value = input.value.trim();
+      if (value) saveMealPlan(null, value);
+    });
+    freeText.append(label, save);
+    weeklyRecipeList.append(freeText);
+    weeklyRecipeList.classList.remove('hidden');
+    plannerSuggestion.textContent = matchingRecipes.length
+      ? 'המתכונים מסודרים לפי זמינות המצרכים.'
+      : 'אין עדיין מתכונים בקטגוריה הזו. אפשר להשתמש בטקסט חופשי.';
+  }
+
+  function openPlanner(date, slot, dayType, label) {
+    plannerTarget = { date, slot, dayType };
+    selectedPlannerCategory = null;
+    plannerTitle.textContent = `${label} · ${new Intl.DateTimeFormat('he-IL', { day: 'numeric', month: 'numeric' }).format(new Date(`${date}T12:00:00`))}`;
+    plannerSuggestion.textContent = 'שלב 1: בוחרים את סוג הארוחה. שלב 2: בוחרים מתכון או כותבים טקסט חופשי.';
+    weeklyRecipeList.replaceChildren();
+    weeklyRecipeList.classList.add('hidden');
+    categoryOptions.replaceChildren();
+    const breakfastSlot = slot.startsWith('breakfast') || slot === 'family_breakfast';
+    const categoryKeys = breakfastSlot
+      ? ['breakfast', 'dairy', 'vegetarian', 'vegan', 'other']
+      : ['dairy', 'beef', 'chicken', 'fish', 'vegetarian', 'vegan', 'side', 'other'];
+    categoryKeys.forEach(category => {
+      const button = document.createElement('button');
+      button.className = 'btn';
+      button.type = 'button';
+      button.textContent = categoryLabels[category];
+      button.addEventListener('click', () => {
+        categoryOptions.querySelectorAll('button').forEach(item => item.classList.toggle('btn-primary', item === button));
+        renderPlannerChoices(category);
+      });
+      categoryOptions.append(button);
+    });
+    categoryPicker.classList.remove('hidden');
+    categoryPicker.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function createMealSlot(date, slot, label, dayType) {
+    const row = document.createElement('div');
+    row.className = 'live-meal-slot';
+    const slotLabel = document.createElement('span');
+    slotLabel.className = 'text-muted';
+    slotLabel.textContent = label;
+    const plan = planFor(date, slot);
+    const recipe = recipeForPlan(plan);
+    const choose = document.createElement('button');
+    choose.className = `btn${plan ? ' btn-primary' : ''}`;
+    choose.type = 'button';
+    choose.textContent = recipe?.title || plan?.free_text || 'בחירת ארוחה';
+    choose.addEventListener('click', () => openPlanner(date, slot, dayType, label));
+    row.append(slotLabel, choose);
+    if (plan) {
+      const clear = document.createElement('button');
+      clear.className = 'btn btn-ghost';
+      clear.type = 'button';
+      clear.textContent = '×';
+      clear.setAttribute('aria-label', `מחיקת ${label}`);
+      clear.addEventListener('click', () => deleteMealPlan(date, slot));
+      row.append(clear);
+    } else {
+      row.append(document.createElement('span'));
+    }
+    return row;
+  }
+
+  function renderWeeklyPlanner() {
+    morningWeek.hidden = true;
+    morningWeek.previousElementSibling.hidden = true;
+    document.getElementById('breakfast-picker').classList.add('hidden');
+    document.getElementById('breakfast-picker').nextElementSibling.textContent = 'כל בחירה נשמרת מיד ומשותפת לשני ולליאור. משימות הכנה יתווספו בשלב הבא.';
+    weekGrid.className = 'live-week-grid';
+    weekGrid.replaceChildren();
+    const dayNames = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+    currentWeekDates().forEach((dateValue, index) => {
+      const date = localDateString(dateValue);
+      const plansForDay = mealPlans.filter(plan => plan.planned_date === date);
+      const storedType = plansForDay[0]?.day_type;
+      const dayType = plannerDayTypes.get(date) || storedType || 'regular';
+      plannerDayTypes.set(date, dayType);
+      const card = document.createElement('div');
+      card.className = 'card live-day-card';
+      const header = document.createElement('div');
+      header.className = 'live-day-header';
+      const heading = document.createElement('div');
+      heading.className = 'compact';
+      const dayName = document.createElement('strong');
+      dayName.textContent = dayNames[index];
+      const dateLabel = document.createElement('span');
+      dateLabel.className = 'text-muted';
+      dateLabel.textContent = new Intl.DateTimeFormat('he-IL', { day: 'numeric', month: 'numeric' }).format(dateValue);
+      heading.append(dayName, dateLabel);
+      const type = document.createElement('select');
+      type.className = 'form-select';
+      [['regular', 'יום רגיל'], ['holiday', 'יום חג'], ['day_off', 'יום חופש']].forEach(([value, label]) => type.add(new Option(label, value)));
+      type.value = dayType;
+      type.addEventListener('change', async () => {
+        plannerDayTypes.set(date, type.value);
+        const familyMode = index === 6 || type.value !== 'regular';
+        const obsoleteSlots = familyMode ? ['breakfast_adults', 'breakfast_children'] : ['family_breakfast'];
+        const obsoletePlans = mealPlans.filter(plan => plan.planned_date === date && obsoleteSlots.includes(plan.meal_slot));
+        if (obsoletePlans.length) {
+          const deleteResult = await client.from('meal_plans')
+            .delete()
+            .eq('household_id', activeHouseholdId)
+            .eq('planned_date', date)
+            .in('meal_slot', obsoleteSlots);
+          if (deleteResult.error) {
+            setSync('סוג היום לא נשמר', 'error');
+            return;
+          }
+          mealPlans = mealPlans.filter(plan => !(plan.planned_date === date && obsoleteSlots.includes(plan.meal_slot)));
+        }
+        if (plansForDay.length) {
+          const result = await client.from('meal_plans').update({ day_type: type.value }).eq('household_id', activeHouseholdId).eq('planned_date', date);
+          if (result.error) {
+            setSync('סוג היום לא נשמר', 'error');
+            return;
+          }
+          mealPlans.filter(plan => plan.planned_date === date).forEach(plan => { plan.day_type = type.value; });
+        }
+        renderWeeklyPlanner();
+      });
+      header.append(heading, type);
+      card.append(header);
+      const familyBreakfast = index === 6 || dayType !== 'regular';
+      if (familyBreakfast) {
+        card.append(createMealSlot(date, 'family_breakfast', 'ארוחת בוקר משפחתית', dayType));
+      } else {
+        card.append(createMealSlot(date, 'breakfast_adults', 'בוקר שני וליאור', dayType));
+        card.append(createMealSlot(date, 'breakfast_children', 'קופסאות לבנות', dayType));
+      }
+      card.append(createMealSlot(date, 'lunch', 'צהריים', dayType));
+      card.append(createMealSlot(date, 'dinner', 'ערב', dayType));
+      weekGrid.append(card);
+    });
+    const beefMeals = mealPlans.filter(plan => plan.main_category === 'beef').length;
+    document.getElementById('beef-count').textContent = `בשר בקר: ${beefMeals}`;
+    document.getElementById('beef-count').classList.toggle('text-destructive', beefMeals > 2);
+    document.getElementById('close-picker').onclick = closePlanner;
+  }
+
   function renderInventory(items) {
     inventoryGrid.replaceChildren();
     inventoryFilters.replaceChildren();
@@ -2305,15 +2598,17 @@ html>body{padding:0}</style>
 
   async function loadHouseholdData() {
     setSync('טוען נתונים…');
-    const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult] = await Promise.all([
+    const weekDates = currentWeekDates().map(localDateString);
+    const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, mealPlansResult] = await Promise.all([
       client.from('recipes').select('*').order('title'),
       client.from('recipe_availability').select('*'),
       client.from('recipe_feedback').select('recipe_id,person_name,sentiment,note,created_at').order('created_at'),
       client.from('recipe_ingredients').select('recipe_id,quantity,unit,preparation,is_optional,sort_order,ingredients(name)').order('sort_order'),
       client.from('recipe_tag_links').select('recipe_id,recipe_tags(name,color)'),
-      client.from('inventory_items').select('id,ingredient_id,location_id,quantity,unit,is_approximate,stocked_at,frozen_at,best_before,notes,ingredients(name,category),locations(id,name,kind,access_level,sort_order)')
+      client.from('inventory_items').select('id,ingredient_id,location_id,quantity,unit,is_approximate,stocked_at,frozen_at,best_before,notes,ingredients(name,category),locations(id,name,kind,access_level,sort_order)'),
+      client.from('meal_plans').select('*').gte('planned_date', weekDates[0]).lte('planned_date', weekDates[6]).order('planned_date')
     ]);
-    const failure = [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult].find(result => result.error);
+    const failure = [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, mealPlansResult].find(result => result.error);
     if (failure) throw failure.error;
 
     recipes = recipesResult.data || [];
@@ -2321,15 +2616,18 @@ html>body{padding:0}</style>
     feedbackByRecipe = groupBy(feedbackResult.data || [], 'recipe_id');
     ingredientsByRecipe = groupBy(ingredientsResult.data || [], 'recipe_id');
     tagsByRecipe = groupBy(tagsResult.data || [], 'recipe_id');
+    mealPlans = mealPlansResult.data || [];
     renderRecipeFilters();
     renderRecipes();
     renderInventory(inventoryResult.data || []);
+    renderWeeklyPlanner();
     setSync('הנתונים מעודכנים', 'ready');
   }
 
   async function handleSession(session) {
     if (!session?.user) {
       activeUserId = null;
+      activeHouseholdId = null;
       showLogin();
       return;
     }
@@ -2346,6 +2644,7 @@ html>body{padding:0}</style>
       showUnlinked(session.user.email);
       return;
     }
+    activeHouseholdId = membership.data.household_id;
     showApp(membership.data.display_name);
     try {
       await loadHouseholdData();
