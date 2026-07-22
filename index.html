@@ -2611,35 +2611,53 @@ html>body{padding:0}</style>
     yesterday.setDate(yesterday.getDate() - 1);
     const date = localDateString(yesterday);
     const plans = mealPlans.filter(plan => plan.planned_date === date);
-    let confirmation = document.getElementById('yesterday-checkin-confirmation');
-    if (!confirmation) {
-      confirmation = document.createElement('div');
-      confirmation.id = 'yesterday-checkin-confirmation';
-      confirmation.className = 'checkin-confirmation';
-      yesterdayCheckin.after(confirmation);
-    }
+    const list = document.getElementById('day-checkin-list');
+    const resultMessage = document.getElementById('checkin-result');
+    const statusBadge = document.getElementById('checkin-status');
+    const heading = yesterdayCheckin.querySelector('h3');
+    const subtitle = yesterdayCheckin.querySelector('.text-muted');
+    const outcomeLabels = { completed: 'בוצע כמתוכנן', changed: 'אכלנו משהו אחר', takeout: 'הזמנו אוכל', skipped: 'לא אכלנו / דילגנו' };
+    document.getElementById('yesterday-checkin-confirmation')?.remove();
+    yesterdayCheckin.hidden = false;
+    list.replaceChildren();
+    heading.textContent = `מה קרה ${new Intl.DateTimeFormat('he-IL', { weekday: 'long' }).format(yesterday)}?`;
     if (!plans.length) {
-      yesterdayCheckin.hidden = true;
-      confirmation.hidden = true;
+      subtitle.textContent = 'לא היו ארוחות מתוכננות ליום הזה.';
+      statusBadge.textContent = 'אין תכנון';
+      resultMessage.hidden = true;
+      document.getElementById('save-day-checkin').hidden = true;
       return;
     }
     if (plans.every(plan => plan.status !== 'planned')) {
-      yesterdayCheckin.hidden = true;
       const responders = [...new Set(plans.map(plan => plan.outcome_recorded_by).filter(Boolean))]
         .map(userId => householdMembers.find(member => member.user_id === userId)?.display_name)
         .filter(Boolean);
       const recordedAt = plans.map(plan => plan.outcome_recorded_at).filter(Boolean).sort().at(-1);
       const time = recordedAt ? new Intl.DateTimeFormat('he-IL', { hour: '2-digit', minute: '2-digit' }).format(new Date(recordedAt)) : '';
-      confirmation.textContent = `אתמול כבר עודכן${responders.length ? ` על ידי ${responders.join(' ו')}` : ''}${time ? ` בשעה ${time}` : ''}.`;
-      confirmation.hidden = false;
+      subtitle.textContent = 'היום כבר עודכן ואפשר לראות מה קרה בכל ארוחה.';
+      statusBadge.textContent = 'עודכן ✓';
+      plans.forEach(plan => {
+        const row = document.createElement('div');
+        row.className = 'meal-line';
+        const label = document.createElement('strong');
+        label.textContent = mealSlotLabels[plan.meal_slot] || 'ארוחה';
+        const name = document.createElement('span');
+        name.textContent = recipeForPlan(plan)?.title || plan.free_text || 'ללא שם';
+        const outcome = document.createElement('span');
+        outcome.className = 'text-muted';
+        outcome.textContent = outcomeLabels[plan.status] || plan.status;
+        row.append(label, name, outcome);
+        list.append(row);
+      });
+      resultMessage.textContent = `עודכן${responders.length ? ` על ידי ${responders.join(' ו')}` : ''}${time ? ` בשעה ${time}` : ''}.`;
+      resultMessage.className = 'checkin-confirmation';
+      resultMessage.hidden = false;
+      document.getElementById('save-day-checkin').hidden = true;
       return;
     }
-    confirmation.hidden = true;
-    yesterdayCheckin.hidden = false;
-    yesterdayCheckin.querySelector('h3').textContent = `מה קרה ${new Intl.DateTimeFormat('he-IL', { weekday: 'long' }).format(yesterday)}?`;
-    yesterdayCheckin.querySelector('.text-muted').textContent = 'עוברים על כל הארוחות שתוכננו ורק אז שומרים את היום כולו.';
-    const list = document.getElementById('day-checkin-list');
-    list.replaceChildren();
+    subtitle.textContent = 'עוברים על כל הארוחות שתוכננו ורק אז שומרים את היום כולו.';
+    resultMessage.hidden = true;
+    const pendingPlans = plans.filter(plan => plan.status === 'planned');
     const selections = new Map();
     plans.forEach(plan => {
       const recipe = recipeForPlan(plan);
@@ -2649,25 +2667,31 @@ html>body{padding:0}</style>
       label.textContent = mealSlotLabels[plan.meal_slot] || 'ארוחה';
       const name = document.createElement('span');
       name.textContent = recipe?.title || plan.free_text || 'ללא שם';
-      const outcome = document.createElement('select');
-      outcome.className = 'form-select live-outcome';
-      [['', 'מה קרה?'], ['completed', 'בוצע כמתוכנן'], ['changed', 'אכלנו משהו אחר'], ['takeout', 'הזמנו אוכל'], ['skipped', 'לא אכלנו / דילגנו']].forEach(([value, text]) => outcome.add(new Option(text, value)));
-      outcome.addEventListener('change', () => {
-        if (outcome.value) selections.set(plan.id, outcome.value); else selections.delete(plan.id);
-        saveButton.disabled = selections.size !== plans.length;
-        document.getElementById('checkin-status').textContent = `${selections.size} מתוך ${plans.length}`;
-      });
+      const outcome = plan.status === 'planned' ? document.createElement('select') : document.createElement('span');
+      if (plan.status === 'planned') {
+        outcome.className = 'form-select live-outcome';
+        [['', 'מה קרה?'], ...Object.entries(outcomeLabels)].forEach(([value, text]) => outcome.add(new Option(text, value)));
+        outcome.addEventListener('change', () => {
+          if (outcome.value) selections.set(plan.id, outcome.value); else selections.delete(plan.id);
+          saveButton.disabled = selections.size !== pendingPlans.length;
+          statusBadge.textContent = `${selections.size} מתוך ${pendingPlans.length}`;
+        });
+      } else {
+        outcome.className = 'text-muted';
+        outcome.textContent = outcomeLabels[plan.status] || plan.status;
+      }
       row.append(label, name, outcome);
       list.append(row);
     });
     const oldButton = document.getElementById('save-day-checkin');
     const saveButton = oldButton.cloneNode(true);
     oldButton.replaceWith(saveButton);
+    saveButton.hidden = false;
     saveButton.disabled = true;
     saveButton.addEventListener('click', async () => {
       saveButton.disabled = true;
       setSync('שומר את אתמול…');
-       const results = await Promise.all(plans.map(plan => client.from('meal_plans').update({
+       const results = await Promise.all(pendingPlans.map(plan => client.from('meal_plans').update({
           status: selections.get(plan.id),
           completed_at: selections.get(plan.id) === 'completed' ? new Date().toISOString() : null,
           outcome_recorded_at: new Date().toISOString(),
@@ -2679,7 +2703,7 @@ html>body{padding:0}</style>
         saveButton.disabled = false;
         return;
       }
-      plans.forEach(plan => {
+      pendingPlans.forEach(plan => {
         plan.status = selections.get(plan.id);
         plan.outcome_recorded_at = new Date().toISOString();
         plan.outcome_recorded_by = activeUserId;
@@ -2793,6 +2817,7 @@ html>body{padding:0}</style>
     closePlanner();
     renderWeeklyPlanner();
     renderTodayDashboard();
+    renderShoppingList();
     setSync('התכנון נשמר', 'ready');
     return result.data;
   }
@@ -2823,6 +2848,7 @@ html>body{padding:0}</style>
     markShoppingStale();
     renderWeeklyPlanner();
     renderTodayDashboard();
+    renderShoppingList();
     setSync('התכנון עודכן', 'ready');
   }
 
@@ -2935,6 +2961,19 @@ html>body{padding:0}</style>
     return new Date(date.getTime() - offset).toISOString().slice(0, 16);
   }
 
+  function suggestedPreparationDeadline(plan) {
+    const date = new Date(`${plan.planned_date}T12:00:00`);
+    if (plan.meal_slot === 'breakfast_adults' || plan.meal_slot === 'breakfast_children' || plan.meal_slot === 'family_breakfast') {
+      date.setDate(date.getDate() - 1);
+      date.setHours(21, 0, 0, 0);
+    } else if (plan.meal_slot === 'lunch') {
+      date.setHours(10, 30, 0, 0);
+    } else {
+      date.setHours(16, 30, 0, 0);
+    }
+    return date;
+  }
+
   function createPreparationEditor(plan, recipe, existingTask) {
     const form = document.createElement('form');
     form.className = 'prep-inline';
@@ -2964,6 +3003,17 @@ html>body{padding:0}</style>
     due.required = true;
     dueLabel.append(due);
     times.append(scheduledLabel, dueLabel);
+    const suggestedDeadline = suggestedPreparationDeadline(plan);
+    const suggestion = document.createElement('div');
+    suggestion.className = 'notice';
+    const suggestionText = document.createElement('span');
+    suggestionText.textContent = `הצעת מועד אחרון: ${new Intl.DateTimeFormat('he-IL', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(suggestedDeadline)}. אפשר לשנות.`;
+    const useSuggestion = document.createElement('button');
+    useSuggestion.className = 'btn';
+    useSuggestion.type = 'button';
+    useSuggestion.textContent = 'שימוש בהצעה';
+    useSuggestion.addEventListener('click', () => { due.value = dateTimeLocalValue(suggestedDeadline); });
+    suggestion.append(suggestionText, useSuggestion);
     const notes = document.createElement('textarea');
     notes.className = 'form-control';
     notes.rows = 2;
@@ -2999,7 +3049,7 @@ html>body{padding:0}</style>
       });
       actions.append(remove);
     }
-    form.append(title, times, notes, warning, actions);
+    form.append(title, times, suggestion, notes, warning, actions);
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const scheduledDate = new Date(scheduled.value);
@@ -3355,6 +3405,7 @@ html>body{padding:0}</style>
         markShoppingStale();
         renderWeeklyPlanner();
         renderTodayDashboard();
+        renderShoppingList();
       });
       header.append(heading, type);
       card.append(header);
@@ -3854,6 +3905,63 @@ html>body{padding:0}</style>
     return section;
   }
 
+  function createInventoryAddForm(location) {
+    const form = createStockForm({
+      quantity: 1,
+      locationId: location.id,
+      saveLabel: 'הוספה למלאי',
+      onSave: async values => {
+        const itemName = nameInput.value.trim();
+        if (!itemName) throw new Error('Missing inventory item name');
+        const ingredientId = await ensureIngredient(itemName, values.unit);
+        const existing = inventoryItems.find(item => item.ingredient_id === ingredientId && item.location_id === values.locationId && (item.unit || '') === values.unit);
+        let savedItemId;
+        if (existing) {
+          const updateResult = await client.from('inventory_items').update({
+            quantity: Number(existing.quantity || 0) + values.quantity,
+            stocked_at: localDateString(new Date()),
+            best_before: values.bestBefore || existing.best_before,
+            notes: values.notes || existing.notes
+          }).eq('id', existing.id).eq('household_id', activeHouseholdId).select('id').single();
+          if (updateResult.error) throw updateResult.error;
+          savedItemId = updateResult.data.id;
+        } else {
+          const insertResult = await client.from('inventory_items').insert({
+            household_id: activeHouseholdId,
+            ingredient_id: ingredientId,
+            location_id: values.locationId,
+            quantity: values.quantity,
+            unit: values.unit || null,
+            stocked_at: localDateString(new Date()),
+            best_before: values.bestBefore,
+            notes: values.notes
+          }).select('id').single();
+          if (insertResult.error) throw insertResult.error;
+          savedItemId = insertResult.data.id;
+        }
+        const eventResult = await client.from('inventory_events').insert({
+          household_id: activeHouseholdId,
+          ingredient_id: ingredientId,
+          inventory_item_id: savedItemId,
+          location_id: values.locationId,
+          event_type: 'adjust',
+          quantity: values.quantity,
+          unit: values.unit || null,
+          notes: `נוסף ידנית למלאי: ${itemName}`
+        });
+        if (eventResult.error) throw eventResult.error;
+        await loadHouseholdData();
+      }
+    });
+    const nameInput = document.createElement('input');
+    nameInput.className = 'wide';
+    nameInput.placeholder = 'שם המוצר או המצרך';
+    nameInput.required = true;
+    form.insertBefore(nameInput, form.firstChild);
+    form.hidden = true;
+    return form;
+  }
+
   function renderInventory(items) {
     inventoryGrid.replaceChildren();
     inventoryFilters.replaceChildren();
@@ -3889,13 +3997,22 @@ html>body{padding:0}</style>
       const badge = document.createElement('span');
       badge.className = 'viz-badge';
       badge.textContent = location.access_level === 'retrieve' ? 'צריך להביא' : 'נגיש עכשיו';
-      header.append(title, badge);
+      const headerActions = document.createElement('div');
+      headerActions.className = 'stock-actions';
+      const add = document.createElement('button');
+      add.className = 'btn btn-primary';
+      add.type = 'button';
+      add.textContent = 'הוספת פריט';
+      headerActions.append(badge, add);
+      header.append(title, headerActions);
+      const addForm = createInventoryAddForm(location);
+      add.addEventListener('click', () => { addForm.hidden = !addForm.hidden; });
       const list = document.createElement('ul');
       list.className = 'inventory-list';
       items.filter(item => item.location_id === location.id).sort((a, b) => (a.ingredients?.name || '').localeCompare(b.ingredients?.name || '', 'he')).forEach(item => {
         list.append(createInventoryRow(item));
       });
-      section.append(header, list);
+      section.append(header, addForm, list);
       inventoryGrid.append(section);
     });
     inventoryGrid.append(createLeftoversSection());
@@ -3953,6 +4070,7 @@ html>body{padding:0}</style>
     renderInventory(inventoryItems);
     renderWeeklyPlanner();
     renderTodayDashboard();
+    renderShoppingList();
     setSync('הנתונים מעודכנים', 'ready');
   }
 
@@ -3996,12 +4114,18 @@ html>body{padding:0}</style>
       return;
     }
     activeHouseholdId = membership.data.household_id;
-    showApp(membership.data.display_name);
+    document.body.classList.add('app-locked');
+    authShell.hidden = false;
+    authForm.hidden = true;
+    authSignOut.hidden = true;
+    setAuthMessage('טוען את הנתונים המעודכנים…');
     try {
       await loadHouseholdData();
+      showApp(membership.data.display_name);
       startBackgroundRefresh();
     } catch (error) {
-      setSync('שגיאה בטעינת הנתונים', 'error');
+      authSignOut.hidden = false;
+      setAuthMessage('לא הצלחנו לטעון את נתוני הבית. אפשר לרענן ולנסות שוב.', true);
       console.error(error);
     }
   }
