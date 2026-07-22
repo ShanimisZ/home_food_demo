@@ -2494,10 +2494,12 @@ html>body{padding:0}</style>
     const visible = recipes.filter(recipe => {
       const recipeCategory = categoryLabels[recipe.meal_category] || 'אחר';
       const availability = availabilityByRecipe.get(recipe.id)?.availability_status || 'shopping_required';
+      const ingredientsReady = recipe.ingredient_data_complete !== false;
       const categoryMatches = category === 'all' || category === recipeCategory;
       const availabilityMatches = availabilityChoice === 'all'
-        || (availabilityChoice === 'owned' && ['ready_now', 'no_shopping'].includes(availability))
-        || availabilityData[availability] === availabilityChoice;
+        || (ingredientsReady && availabilityChoice === 'owned' && ['ready_now', 'no_shopping'].includes(availability))
+        || (ingredientsReady && availabilityData[availability] === availabilityChoice)
+        || (!ingredientsReady && availabilityChoice === 'shopping');
       return categoryMatches && availabilityMatches;
     });
 
@@ -2532,7 +2534,9 @@ html>body{padding:0}</style>
       const missing = Number(availability.missing_required_count || 0);
       const retrieve = Number(availability.retrieve_required_count || 0);
       const stockDetail = missing ? ` · חסרים ${missing}` : retrieve ? ` · להביא מהמחסן ${retrieve}` : '';
-      status.textContent = `${availabilityLabels[availability.availability_status] || availabilityLabels.shopping_required}${stockDetail} · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`;
+      status.textContent = recipe.ingredient_data_complete === false
+        ? `⚪ מלאי: רשימת המצרכים עוד לא הוזנה · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`
+        : `${availabilityLabels[availability.availability_status] || availabilityLabels.shopping_required}${stockDetail} · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`;
       const feedback = document.createElement('span');
       feedback.className = 'text-muted';
       const feedbackItems = feedbackByRecipe.get(recipe.id) || [];
@@ -2583,7 +2587,9 @@ html>body{padding:0}</style>
 
     const availability = availabilityByRecipe.get(recipe.id) || {};
     const summary = document.createElement('p');
-    summary.textContent = `${availabilityLabels[availability.availability_status] || availabilityLabels.shopping_required} · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`;
+    summary.textContent = recipe.ingredient_data_complete === false
+      ? `⚪ רשימת המצרכים עוד לא הוזנה · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`
+      : `${availabilityLabels[availability.availability_status] || availabilityLabels.shopping_required} · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`;
     recipeDetail.append(summary);
 
     const blocks = [
@@ -2609,7 +2615,8 @@ html>body{padding:0}</style>
     ingredientTitle.textContent = 'מרכיבים';
     const ingredientList = document.createElement('ul');
     ingredientList.className = 'detail-list';
-    (ingredientsByRecipe.get(recipe.id) || []).forEach(item => {
+    const recipeIngredients = ingredientsByRecipe.get(recipe.id) || [];
+    recipeIngredients.forEach(item => {
       const listItem = document.createElement('li');
       const stockState = ingredientStockState(item);
       const stockNote = item.is_optional ? '(לא חובה)' : stockState === 'missing' ? '— חסר' : stockState === 'retrieve' ? '— צריך להביא מהמחסן' : '';
@@ -2619,6 +2626,12 @@ html>body{padding:0}</style>
       else if (stockState === 'retrieve') listItem.className = 'ingredient-retrieve';
       ingredientList.append(listItem);
     });
+    if (!recipeIngredients.length) {
+      const empty = document.createElement('li');
+      empty.className = 'text-muted';
+      empty.textContent = 'רשימת המצרכים עדיין לא הוזנה. המתכון לא יופיע בסינון של מצרכים זמינים.';
+      ingredientList.append(empty);
+    }
     recipeDetail.append(ingredientTitle, ingredientList);
 
     const feedbackItems = feedbackByRecipe.get(recipe.id) || [];
@@ -2927,6 +2940,7 @@ html>body{padding:0}</style>
   }
 
   function plannerAvailabilityText(recipe) {
+    if (recipe.ingredient_data_complete === false) return '⚪ רשימת המצרכים עוד לא הוזנה';
     const availability = availabilityByRecipe.get(recipe.id)?.availability_status || 'shopping_required';
     return availabilityLabels[availability] || availabilityLabels.shopping_required;
   }
@@ -3015,8 +3029,8 @@ html>body{padding:0}</style>
       .filter(recipe => category === 'other' || recipe.meal_category === category)
       .sort((first, second) => {
         const rank = { ready_now: 0, no_shopping: 1, small_top_up: 2, shopping_required: 3 };
-        const firstRank = rank[availabilityByRecipe.get(first.id)?.availability_status] ?? 4;
-        const secondRank = rank[availabilityByRecipe.get(second.id)?.availability_status] ?? 4;
+        const firstRank = first.ingredient_data_complete === false ? 5 : rank[availabilityByRecipe.get(first.id)?.availability_status] ?? 4;
+        const secondRank = second.ingredient_data_complete === false ? 5 : rank[availabilityByRecipe.get(second.id)?.availability_status] ?? 4;
         return firstRank - secondRank || first.title.localeCompare(second.title, 'he');
       });
     matchingRecipes.forEach(recipe => {
