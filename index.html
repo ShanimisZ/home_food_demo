@@ -801,23 +801,63 @@ svg {
 
 html>body{padding:0}</style>
 <style>
+  :root {
+    color-scheme: light;
+    --background: #f7f3eb;
+    --foreground: #403d36;
+    --card: #fffdf8;
+    --card-foreground: #403d36;
+    --popover: #fffdf8;
+    --popover-foreground: #403d36;
+    --primary: #65745f;
+    --primary-foreground: #fffdf8;
+    --secondary: #f1eadf;
+    --secondary-foreground: #4c4941;
+    --muted: #eee8df;
+    --muted-foreground: #746f65;
+    --accent: #e8eee3;
+    --accent-foreground: #4f6249;
+    --destructive: #b95f4b;
+    --border: #ded7ca;
+    --input: #d5ccbd;
+    --ring: #7f9277;
+    --radius: 16px;
+    --shadow-sm: 0 7px 22px rgba(83, 72, 52, .07);
+  }
+  html > body { min-height: 100vh; padding: 0; background: radial-gradient(circle at 92% 0%, rgba(188, 205, 180, .28), transparent 30%), linear-gradient(180deg, #faf7f1 0%, #f6f1e8 100%) !important; }
   [hidden] { display: none !important; }
   body.app-locked #home-food-trial { display: none; }
   .auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; direction: rtl; }
-  .auth-card { width: min(440px, 100%); background: var(--card); color: var(--card-foreground); border: 1px solid var(--border); border-radius: 22px; padding: 24px; box-shadow: 0 18px 50px rgba(15, 23, 42, .12); }
+  .auth-card { width: min(440px, 100%); background: rgba(255, 253, 248, .94); color: var(--card-foreground); border: 1px solid var(--border); border-radius: 26px; padding: 28px; box-shadow: 0 24px 70px rgba(83, 72, 52, .13); }
   .auth-card h1 { margin: 0 0 8px; font-size: 1.7rem; }
   .auth-card p { line-height: 1.55; }
   .auth-form { display: grid; gap: 12px; margin-top: 20px; }
   .auth-form input { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--background); color: var(--foreground); font: inherit; }
-  .auth-form button, .account-button { border: 0; border-radius: 12px; padding: 10px 14px; background: var(--primary); color: var(--primary-foreground); font: inherit; font-weight: 700; cursor: pointer; }
+  .auth-form button, .account-button { border: 0; border-radius: 14px; padding: 11px 15px; background: var(--primary); color: var(--primary-foreground); font: inherit; font-weight: 700; cursor: pointer; }
   .auth-form button:disabled { opacity: .55; cursor: wait; }
   .auth-message { min-height: 1.5em; margin: 12px 0 0; color: var(--muted-foreground); }
   .auth-message.error { color: #b42318; }
-  .live-account { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .sync-badge { border-radius: 999px; padding: 7px 10px; background: var(--muted); color: var(--muted-foreground); font-size: .85rem; }
+  #home-food-trial { box-sizing: border-box; width: auto !important; max-width: 1180px; margin: 0 auto; padding: 18px 20px 44px; }
+  #home-food-trial *, #home-food-trial *::before, #home-food-trial *::after { box-sizing: border-box; }
+  #home-food-trial .app { gap: 18px; }
+  #home-food-trial .topline { position: relative; overflow: hidden; padding: 24px 26px; border: 1px solid #d8dfd2; border-radius: 26px; background: linear-gradient(135deg, rgba(255, 253, 248, .98), rgba(232, 239, 226, .96)); box-shadow: 0 14px 38px rgba(83, 92, 72, .10); }
+  #home-food-trial .topline::after { position: absolute; inset-inline-start: -30px; bottom: -48px; width: 150px; height: 150px; border-radius: 50%; background: rgba(205, 174, 139, .14); content: ''; pointer-events: none; }
+  #home-food-trial .topline h2 { color: #3d4939; font-size: clamp(1.65rem, 4vw, 2.3rem); font-weight: 750; letter-spacing: -.025em; }
+  #home-food-trial .topline p { margin-top: 6px; color: #746f65; font-size: 1rem; }
+  #home-food-trial .brand-copy { position: relative; min-height: 48px; padding-inline-start: 60px; }
+  #home-food-trial .brand-mark { position: absolute; inset-inline-start: 0; top: 0; display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid rgba(101, 116, 95, .18); border-radius: 15px; background: rgba(255, 253, 248, .78); color: #65745f; box-shadow: 0 6px 18px rgba(83, 72, 52, .07); }
+  #home-food-trial .brand-mark svg { width: 24px; height: 24px; stroke-width: 1.7; }
+  #home-food-trial .card { border: 1px solid var(--border); border-radius: 20px; background: rgba(255, 253, 248, .94); box-shadow: var(--shadow-sm); }
+  #home-food-trial .btn { min-height: 40px; padding: 8px 13px; border-color: #d8d0c3; border-radius: 13px; background: #fffdf8; color: #4b4840; font-weight: 620; transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease; }
+  #home-food-trial .btn:not(:disabled):hover { transform: translateY(-1px); border-color: #b8c4b2; background: #f5f7f1; box-shadow: 0 5px 14px rgba(83, 72, 52, .08); }
+  #home-food-trial .btn-primary { border-color: #65745f; background: #65745f; color: #fffdf8; }
+  #home-food-trial .btn-primary:not(:disabled):hover { background: #566650; }
+  #home-food-trial .form-control, #home-food-trial .form-select, #home-food-trial input, #home-food-trial textarea, #home-food-trial select { min-height: 42px; border-radius: 12px; }
+  .live-account { position: relative; z-index: 1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .sync-badge { border: 1px solid rgba(101, 116, 95, .16); border-radius: 999px; padding: 8px 11px; background: rgba(255, 253, 248, .75); color: var(--muted-foreground); font-size: .85rem; }
   .sync-badge.ready { background: #dcfce7; color: #166534; }
   .sync-badge.error { background: #fee2e2; color: #991b1b; }
-  .account-button { background: transparent; color: var(--foreground); border: 1px solid var(--border); padding: 7px 10px; }
+  .account-button { background: rgba(255, 253, 248, .7); color: var(--foreground); border: 1px solid var(--border); padding: 8px 11px; }
   .live-empty { padding: 24px; text-align: center; color: var(--muted-foreground); }
   .live-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
   .live-tag { display: inline-flex; border-radius: 999px; padding: 3px 8px; background: var(--muted); color: var(--muted-foreground); font-size: .8rem; }
@@ -833,9 +873,32 @@ html>body{padding:0}</style>
   .planner-choice:first-child { border-top: 0; }
   .planner-free-text { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); }
   .planner-saving { opacity: .65; pointer-events: none; }
-  #home-food-trial .live-top-nav { position: sticky; top: 0; z-index: 30; display: flex; gap: 6px; margin: 0 -4px; padding: 8px 4px; background: color-mix(in srgb, var(--background) 92%, transparent); backdrop-filter: blur(12px); overflow-x: auto; flex-wrap: nowrap; box-shadow: 0 1px 0 var(--border); }
-  #home-food-trial .live-top-nav .nav-btn { flex: 0 0 auto; }
+  #home-food-trial .live-top-nav { position: sticky; top: 8px; z-index: 30; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 7px; border: 1px solid rgba(216, 208, 195, .9); border-radius: 19px; background: rgba(250, 247, 241, .91); backdrop-filter: blur(16px); overflow: visible; box-shadow: 0 10px 28px rgba(83, 72, 52, .10); }
+  #home-food-trial .live-top-nav .nav-btn { min-width: 0; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; background: transparent; box-shadow: none; }
+  #home-food-trial .live-top-nav .nav-btn svg { width: 19px; height: 19px; stroke-width: 1.8; }
+  #home-food-trial .live-top-nav .nav-btn.btn-primary { background: #dfe8da; color: #40513b; }
+  #home-food-trial .live-top-nav .nav-btn.btn-primary svg { color: #586d51; }
   #home-food-trial .live-top-nav .nav-label { display: inline !important; }
+  #home-food-trial .view.is-active { gap: 18px; animation: warm-fade-in 180ms ease-out; }
+  @keyframes warm-fade-in { from { opacity: .35; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+  #home-food-trial .today-grid { gap: 14px; }
+  #home-food-trial .meal-card { position: relative; min-height: 190px; padding: 18px; overflow: hidden; border-top: 4px solid var(--meal-color, #9baa94); }
+  #home-food-trial .meal-card::after { position: absolute; inset-inline-end: -24px; bottom: -35px; width: 100px; height: 100px; border-radius: 50%; background: color-mix(in srgb, var(--meal-color, #9baa94) 11%, transparent); content: ''; pointer-events: none; }
+  #home-food-trial .meal-card[data-meal='morning'] { --meal-color: #d1a96f; }
+  #home-food-trial .meal-card[data-meal='lunch'] { --meal-color: #879b7d; }
+  #home-food-trial .meal-card[data-meal='dinner'] { --meal-color: #b97862; }
+  #home-food-trial .meal-heading { display: flex; align-items: center; gap: 9px; }
+  #home-food-trial .meal-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--meal-color, #9baa94) 16%, #fffdf8); color: color-mix(in srgb, var(--meal-color, #9baa94) 78%, #403d36); }
+  #home-food-trial .meal-icon svg { width: 19px; height: 19px; }
+  #home-food-trial .meal-card .viz-badge { border: 1px solid color-mix(in srgb, var(--meal-color, #9baa94) 30%, transparent); background: color-mix(in srgb, var(--meal-color, #9baa94) 11%, #fffdf8); color: #5a574f; }
+  #home-food-trial .meal-card .detail-block { position: relative; z-index: 1; padding-top: 10px; border-top: 1px solid #eee7dd; }
+  #home-food-trial .meal-card .detail-block strong { font-size: 1.05rem; }
+  #home-food-trial [data-view='today'] > .card:not(.meal-card) { padding: 20px; }
+  #home-food-trial .section-head h3 { color: #46483f; font-size: 1.12rem; }
+  #home-food-trial .section-title-with-icon { display: flex; align-items: center; gap: 9px; }
+  #home-food-trial .section-title-icon { display: inline-grid; width: 31px; height: 31px; flex: 0 0 auto; place-items: center; border-radius: 10px; background: #edf1e9; color: #64735e; }
+  #home-food-trial .section-title-icon svg { width: 17px; height: 17px; }
+  #home-food-trial .notice { border-inline-start-color: #8ea184; border-radius: 0 10px 10px 0; background: rgba(232, 238, 227, .58); padding-block: 8px; }
   .planner-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .shopping-source { color: var(--muted-foreground); font-size: .85rem; }
   .live-shopping-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; }
@@ -864,8 +927,18 @@ html>body{padding:0}</style>
   .ingredient-editor-row { display: grid; grid-template-columns: minmax(150px, 2fr) minmax(80px, .7fr) minmax(100px, 1fr) auto; gap: 8px; align-items: center; }
   .recipe-create-shell { margin-bottom: 14px; }
   .manual-shopping-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 12px; }
+  .prep-suggestion { display: grid; gap: 9px; }
+  .prep-suggestion-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   @media (max-width: 640px) { .ingredient-editor-row { grid-template-columns: 1fr 1fr; } .ingredient-editor-row input:first-child { grid-column: 1 / -1; } }
-  @media (max-width: 640px) { .auth-card { padding: 20px; } }
+  @media (max-width: 720px) {
+    #home-food-trial { padding: 10px 10px 30px; }
+    #home-food-trial .topline { padding: 20px 18px; border-radius: 21px; }
+    #home-food-trial .live-top-nav { top: 5px; gap: 2px; padding: 5px; border-radius: 16px; }
+    #home-food-trial .live-top-nav .nav-btn { min-height: 52px; flex-direction: column; gap: 2px; padding: 5px 3px; font-size: .74rem; }
+    #home-food-trial .live-top-nav .nav-btn svg { width: 18px; height: 18px; }
+    #home-food-trial .meal-card { min-height: 0; }
+    .auth-card { padding: 22px; }
+  }
 </style>
 </head>
 <body class="app-locked">
@@ -2087,6 +2160,53 @@ html>body{padding:0}</style>
   recipeDetail.replaceChildren();
   recipeDetail.hidden = true;
 
+  function makeIcon(name) {
+    const icon = document.createElement('i');
+    icon.dataset.lucide = name;
+    icon.setAttribute('aria-hidden', 'true');
+    return icon;
+  }
+
+  function refreshIcons() {
+    if (window.lucide?.createIcons) window.lucide.createIcons();
+  }
+
+  function setupWarmNavigation() {
+    const icons = {
+      today: 'house-heart',
+      week: 'calendar-range',
+      recipes: 'book-open',
+      inventory: 'refrigerator',
+      shopping: 'shopping-basket'
+    };
+    appNavigation.querySelectorAll('.nav-btn').forEach(button => {
+      const oldIcon = button.querySelector('svg, [data-lucide]');
+      const icon = makeIcon(icons[button.dataset.target] || 'circle');
+      if (oldIcon) oldIcon.replaceWith(icon); else button.prepend(icon);
+    });
+    const brandCopy = appTopline.querySelector('.compact');
+    if (brandCopy && !brandCopy.querySelector('.brand-mark')) {
+      brandCopy.classList.add('brand-copy');
+      const mark = document.createElement('span');
+      mark.className = 'brand-mark';
+      mark.append(makeIcon('cooking-pot'));
+      brandCopy.prepend(mark);
+    }
+    refreshIcons();
+  }
+
+  setupWarmNavigation();
+
+  function decorateSectionTitle(card, iconName) {
+    const heading = card?.querySelector('.section-head h3');
+    if (!heading || heading.querySelector('.section-title-icon')) return;
+    heading.classList.add('section-title-with-icon');
+    const icon = document.createElement('span');
+    icon.className = 'section-title-icon';
+    icon.append(makeIcon(iconName));
+    heading.prepend(icon);
+  }
+
   const categoryLabels = {
     chicken: 'עוף', beef: 'בשר', fish: 'דגים', vegetarian: 'צמחוני', vegan: 'טבעוני',
     breakfast: 'בוקר', dairy: 'חלבי', side: 'תוספת', other: 'אחר'
@@ -2557,14 +2677,26 @@ html>body{padding:0}</style>
   function createTodayCard(titleText, plans) {
     const card = document.createElement('div');
     card.className = 'card meal-card';
+    const mealStyle = titleText === 'בוקר'
+      ? { key: 'morning', icon: 'sunrise' }
+      : titleText === 'צהריים'
+        ? { key: 'lunch', icon: 'sun-medium' }
+        : { key: 'dinner', icon: 'moon-star' };
+    card.dataset.meal = mealStyle.key;
     const header = document.createElement('div');
     header.className = 'section-head';
+    const mealHeading = document.createElement('div');
+    mealHeading.className = 'meal-heading';
+    const iconWrap = document.createElement('span');
+    iconWrap.className = 'meal-icon';
+    iconWrap.append(makeIcon(mealStyle.icon));
     const title = document.createElement('strong');
     title.textContent = titleText;
+    mealHeading.append(iconWrap, title);
     const badge = document.createElement('span');
     badge.className = 'viz-badge';
     badge.textContent = plans.length ? `${plans.length} מתוכנן` : 'לא תוכנן';
-    header.append(title, badge);
+    header.append(mealHeading, badge);
     card.append(header);
     if (!plans.length) {
       const empty = document.createElement('p');
@@ -2621,6 +2753,7 @@ html>body{padding:0}</style>
     yesterdayCheckin.hidden = false;
     list.replaceChildren();
     heading.textContent = `מה קרה ${new Intl.DateTimeFormat('he-IL', { weekday: 'long' }).format(yesterday)}?`;
+    decorateSectionTitle(yesterdayCheckin, 'history');
     if (!plans.length) {
       subtitle.textContent = 'לא היו ארוחות מתוכננות ליום הזה.';
       statusBadge.textContent = 'אין תכנון';
@@ -2714,6 +2847,7 @@ html>body{padding:0}</style>
   }
 
   function renderPreparations() {
+    decorateSectionTitle(prepList.closest('.card'), 'timer-reset');
     prepList.replaceChildren();
     const today = localDateString(new Date());
     const relevant = preparationTasks.filter(task => {
@@ -2769,6 +2903,7 @@ html>body{padding:0}</style>
     document.getElementById('evening-details').hidden = true;
     renderPreparations();
     renderYesterdayCheckin();
+    refreshIcons();
   }
 
   function plannerAvailabilityText(recipe) {
@@ -3005,15 +3140,27 @@ html>body{padding:0}</style>
     times.append(scheduledLabel, dueLabel);
     const suggestedDeadline = suggestedPreparationDeadline(plan);
     const suggestion = document.createElement('div');
-    suggestion.className = 'notice';
+    suggestion.className = 'notice prep-suggestion';
     const suggestionText = document.createElement('span');
     suggestionText.textContent = `הצעת מועד אחרון: ${new Intl.DateTimeFormat('he-IL', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(suggestedDeadline)}. אפשר לשנות.`;
     const useSuggestion = document.createElement('button');
     useSuggestion.className = 'btn';
     useSuggestion.type = 'button';
-    useSuggestion.textContent = 'שימוש בהצעה';
+    useSuggestion.textContent = 'רק כמועד אחרון';
     useSuggestion.addEventListener('click', () => { due.value = dateTimeLocalValue(suggestedDeadline); });
-    suggestion.append(suggestionText, useSuggestion);
+    const useSuggestionForBoth = document.createElement('button');
+    useSuggestionForBoth.className = 'btn btn-primary';
+    useSuggestionForBoth.type = 'button';
+    useSuggestionForBoth.textContent = 'להכין במועד האחרון';
+    useSuggestionForBoth.addEventListener('click', () => {
+      const value = dateTimeLocalValue(suggestedDeadline);
+      scheduled.value = value;
+      due.value = value;
+    });
+    const suggestionActions = document.createElement('div');
+    suggestionActions.className = 'prep-suggestion-actions';
+    suggestionActions.append(useSuggestionForBoth, useSuggestion);
+    suggestion.append(suggestionText, suggestionActions);
     const notes = document.createElement('textarea');
     notes.className = 'form-control';
     notes.rows = 2;
