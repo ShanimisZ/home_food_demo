@@ -2367,9 +2367,45 @@ html>body{padding:0}</style>
     return String(value || '').trim().toLocaleLowerCase();
   }
 
+  const ingredientPreparationSuffixes = [
+    'שטוף', 'שטופה', 'שטופים', 'שטופות',
+    'קצוץ', 'קצוצה', 'קצוצים', 'קצוצות',
+    'קלוף', 'קלופה', 'קלופים', 'קלופות',
+    'מגורר', 'מגוררת', 'מגוררים', 'מגוררות',
+    'כתוש', 'כתושה', 'כתושים', 'כתושות',
+    'פרוס', 'פרוסה', 'פרוסים', 'פרוסות',
+    'מופשר', 'מופשרת', 'מופשרים', 'מופשרות',
+    'מסונן', 'מסוננת', 'מסוננים', 'מסוננות',
+    'סחוט', 'סחוטה', 'סחוטים', 'סחוטות',
+    'washed', 'rinsed', 'chopped', 'diced', 'minced', 'grated', 'peeled', 'sliced', 'thawed', 'drained'
+  ];
+  const preparationSuffixPattern = new RegExp(
+    `(?:,\\s*|\\s+ו?)(${ingredientPreparationSuffixes.join('|')})(?:\\s+(היטב|דק|דקה|דקים|דקות|גס|גסה|גסים|גסות|well|finely|roughly))?$`,
+    'i'
+  );
+
+  function separateIngredientPreparation(name, existingPreparation = '') {
+    let canonicalName = String(name || '').trim();
+    const extracted = [];
+    while (canonicalName) {
+      const match = canonicalName.match(preparationSuffixPattern);
+      if (!match || match.index === undefined) break;
+      extracted.unshift([match[1], match[2]].filter(Boolean).join(' '));
+      canonicalName = canonicalName.slice(0, match.index).trim().replace(/[,\-–—]\s*$/, '').trim();
+    }
+    const preparationParts = [String(existingPreparation || '').trim(), ...extracted].filter(Boolean);
+    const preparation = [...new Map(preparationParts.map(part => [normalizedRecipeText(part), part])).values()].join(', ');
+    return { name: canonicalName || String(name || '').trim(), preparation: preparation || null };
+  }
+
+  function canonicalIngredientName(name) {
+    return normalizedRecipeText(separateIngredientPreparation(name).name);
+  }
+
   function normalizeIngredientChoice(ingredient) {
-    const parts = ingredient.name.split(/\s+(?:or|או)\s+|\s*\/\s*/i).map(part => part.trim()).filter(Boolean);
-    if (parts.length < 2) return { ...ingredient, alternatives: [] };
+    const separated = separateIngredientPreparation(ingredient.name, ingredient.preparation);
+    const parts = separated.name.split(/\s+(?:or|או)\s+|\s*\/\s*/i).map(part => part.trim()).filter(Boolean);
+    if (parts.length < 2) return { ...ingredient, name: separated.name, preparation: separated.preparation, alternatives: [] };
     const normalizedParts = parts.map(normalizedRecipeText);
     const knownFamily = substitutionFamilies.find(family =>
       normalizedParts.every(part => family.names.map(normalizedRecipeText).includes(part))
@@ -2378,6 +2414,7 @@ html>body{padding:0}</style>
       ...ingredient,
       name: parts[0],
       alternatives: parts.slice(1),
+      preparation: separated.preparation,
       acceptsSubstitutions: true,
       substitutionGroup: knownFamily?.group || `choice:${normalizedParts.sort().join('|')}`
     };
@@ -2404,9 +2441,11 @@ html>body{padding:0}</style>
 
   function ingredientStockMatch(ingredient) {
     const requiredGroup = ingredient.ingredients?.substitution_group;
+    const requiredCanonicalName = canonicalIngredientName(ingredient.ingredients?.name);
     const stock = inventoryItems.filter(item => {
       if (!(item.quantity === null || Number(item.quantity) > 0)) return false;
       if (item.ingredient_id === ingredient.ingredient_id) return true;
+      if (requiredCanonicalName && canonicalIngredientName(item.ingredients?.name) === requiredCanonicalName) return true;
       return Boolean(
         ingredient.accepts_substitutions
         && requiredGroup
@@ -2418,7 +2457,10 @@ html>body{padding:0}</style>
     const match = immediate || stock[0];
     return {
       state: immediate ? 'ready' : 'retrieve',
-      substitution: match.ingredient_id === ingredient.ingredient_id ? null : match.ingredients?.name || null
+      substitution: match.ingredient_id === ingredient.ingredient_id
+        || canonicalIngredientName(match.ingredients?.name) === requiredCanonicalName
+        ? null
+        : match.ingredients?.name || null
     };
   }
 
