@@ -2918,6 +2918,8 @@ html>body{padding:0}</style>
         const due = document.createElement('span');
         due.className = 'text-muted';
         due.textContent = `מועד אחרון: ${new Intl.DateTimeFormat('he-IL', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(task.due_at))}`;
+        const actions = document.createElement('div');
+        actions.className = 'stock-actions';
         const done = document.createElement('button');
         done.className = 'btn';
         done.type = 'button';
@@ -2929,7 +2931,110 @@ html>body{padding:0}</style>
           renderPreparations();
           setSync('ההכנה הושלמה', 'ready');
         });
-        row.append(title, due, done);
+        const reschedule = document.createElement('button');
+        reschedule.className = 'btn';
+        reschedule.type = 'button';
+        reschedule.textContent = 'שינוי מועד';
+        const cancelTask = document.createElement('button');
+        cancelTask.className = 'btn danger-button';
+        cancelTask.type = 'button';
+        cancelTask.textContent = 'לא נעשה / ביטול';
+        cancelTask.addEventListener('click', async () => {
+          cancelTask.disabled = true;
+          setSync('מבטל את ההכנה…');
+          const result = await client.from('preparation_tasks')
+            .update({ status: 'cancelled', completed_at: null })
+            .eq('id', task.id)
+            .eq('household_id', activeHouseholdId);
+          if (result.error) {
+            setSync('ההכנה לא בוטלה', 'error');
+            cancelTask.disabled = false;
+            return;
+          }
+          task.status = 'cancelled';
+          renderWeeklyPlanner();
+          renderTodayDashboard();
+          setSync('ההכנה בוטלה', 'ready');
+        });
+        actions.append(done, reschedule, cancelTask);
+
+        const editor = document.createElement('form');
+        editor.className = 'prep-inline';
+        editor.style.gridColumn = '1 / -1';
+        editor.hidden = true;
+        const scheduledLabel = document.createElement('label');
+        scheduledLabel.className = 'form-label';
+        scheduledLabel.textContent = 'מתי נעשה את ההכנה';
+        const scheduled = document.createElement('input');
+        scheduled.className = 'form-control';
+        scheduled.type = 'datetime-local';
+        scheduled.required = true;
+        scheduled.value = dateTimeLocalValue(task.scheduled_for || task.due_at);
+        scheduledLabel.append(scheduled);
+        const dueLabel = document.createElement('label');
+        dueLabel.className = 'form-label';
+        dueLabel.textContent = 'מועד אחרון';
+        const dueInput = document.createElement('input');
+        dueInput.className = 'form-control';
+        dueInput.type = 'datetime-local';
+        dueInput.required = true;
+        dueInput.value = dateTimeLocalValue(task.due_at);
+        dueLabel.append(dueInput);
+        const editorMessage = document.createElement('p');
+        editorMessage.className = 'text-destructive';
+        editorMessage.hidden = true;
+        const editorActions = document.createElement('div');
+        editorActions.className = 'stock-actions';
+        const saveTime = document.createElement('button');
+        saveTime.className = 'btn btn-primary';
+        saveTime.type = 'submit';
+        saveTime.textContent = 'שמירת המועד החדש';
+        const closeEditor = document.createElement('button');
+        closeEditor.className = 'btn';
+        closeEditor.type = 'button';
+        closeEditor.textContent = 'סגירה';
+        closeEditor.addEventListener('click', () => { editor.hidden = true; });
+        editorActions.append(saveTime, closeEditor);
+        editor.append(scheduledLabel, dueLabel, editorMessage, editorActions);
+        reschedule.addEventListener('click', () => {
+          editor.hidden = !editor.hidden;
+          if (!editor.hidden) scheduled.focus();
+        });
+        editor.addEventListener('submit', async event => {
+          event.preventDefault();
+          const scheduledDate = new Date(scheduled.value);
+          const dueDate = new Date(dueInput.value);
+          if (scheduledDate > dueDate) {
+            editorMessage.textContent = 'זמן ההכנה חייב להיות לפני המועד האחרון.';
+            editorMessage.hidden = false;
+            return;
+          }
+          editorMessage.hidden = true;
+          saveTime.disabled = true;
+          setSync('שומר מועד חדש…');
+          const payload = {
+            scheduled_for: scheduledDate.toISOString(),
+            due_at: dueDate.toISOString(),
+            status: 'pending',
+            completed_at: null
+          };
+          const result = await client.from('preparation_tasks')
+            .update(payload)
+            .eq('id', task.id)
+            .eq('household_id', activeHouseholdId)
+            .select('*')
+            .single();
+          if (result.error) {
+            setSync('המועד החדש לא נשמר', 'error');
+            saveTime.disabled = false;
+            return;
+          }
+          Object.assign(task, result.data);
+          renderWeeklyPlanner();
+          renderTodayDashboard();
+          setSync('המועד החדש נשמר', 'ready');
+        });
+        row.append(title, due, actions, editor);
         prepList.append(row);
       });
     }
