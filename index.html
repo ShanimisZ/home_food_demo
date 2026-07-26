@@ -934,12 +934,19 @@ html>body{padding:0}</style>
   .occasion-badge { display: inline-flex; margin-top: 6px; border-radius: 999px; padding: 4px 8px; background: #f3e8ff; color: #6b21a8; font-size: .8rem; }
   .checkin-confirmation { margin-top: 12px; padding: 12px; border-radius: 12px; background: #ecfdf3; color: #166534; }
   .prep-inline { display: grid; gap: 8px; padding: 10px; border-radius: 12px; background: #eff6ff; }
-  .ingredient-editor-row { display: grid; grid-template-columns: minmax(150px, 2fr) minmax(80px, .7fr) minmax(100px, 1fr) auto; gap: 8px; align-items: center; }
+  .prep-steps-panel { background: #f7f4ed; }
+  .prep-step-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .prep-step-copy { display: grid; gap: 3px; }
+  .ingredient-editor-row { display: grid; grid-template-columns: minmax(150px, 2fr) minmax(80px, .7fr) minmax(100px, 1fr) auto; gap: 8px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: 12px; }
+  .ingredient-editor-options { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) auto auto; gap: 8px; align-items: center; }
+  .ingredient-editor-options label { display: flex; gap: 6px; align-items: center; color: var(--muted-foreground); font-size: .88rem; }
+  .ingredient-editor-options input[type='checkbox'] { min-height: auto !important; width: auto; }
+  .recipe-edit-form { margin-top: 12px; }
   .recipe-create-shell { margin-bottom: 14px; }
   .manual-shopping-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 12px; }
   .prep-suggestion { display: grid; gap: 9px; }
   .prep-suggestion-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-  @media (max-width: 640px) { .ingredient-editor-row { grid-template-columns: 1fr 1fr; } .ingredient-editor-row input:first-child { grid-column: 1 / -1; } }
+  @media (max-width: 640px) { .ingredient-editor-row { grid-template-columns: 1fr 1fr; } .ingredient-editor-row > input:first-child { grid-column: 1 / -1; } .ingredient-editor-options { grid-template-columns: 1fr; } }
   @media (max-width: 720px) {
     #home-food-trial { padding: 10px 10px 30px; }
     #home-food-trial .topline { padding: 20px 18px; border-radius: 21px; }
@@ -2298,10 +2305,28 @@ html>body{padding:0}</style>
     return tag;
   }
 
+  function ingredientStockMatch(ingredient) {
+    const requiredGroup = ingredient.ingredients?.substitution_group;
+    const stock = inventoryItems.filter(item => {
+      if (!(item.quantity === null || Number(item.quantity) > 0)) return false;
+      if (item.ingredient_id === ingredient.ingredient_id) return true;
+      return Boolean(
+        ingredient.accepts_substitutions
+        && requiredGroup
+        && item.ingredients?.substitution_group === requiredGroup
+      );
+    });
+    if (!stock.length) return { state: 'missing', substitution: null };
+    const immediate = stock.find(item => item.locations?.access_level === 'immediate');
+    const match = immediate || stock[0];
+    return {
+      state: immediate ? 'ready' : 'retrieve',
+      substitution: match.ingredient_id === ingredient.ingredient_id ? null : match.ingredients?.name || null
+    };
+  }
+
   function ingredientStockState(ingredient) {
-    const stock = inventoryItems.filter(item => item.ingredient_id === ingredient.ingredient_id && (item.quantity === null || Number(item.quantity) > 0));
-    if (!stock.length) return 'missing';
-    return stock.some(item => item.locations?.access_level === 'immediate') ? 'ready' : 'retrieve';
+    return ingredientStockMatch(ingredient).state;
   }
 
   function recipeStockDetails(recipeId) {
@@ -2331,6 +2356,26 @@ html>body{padding:0}</style>
     unit.className = 'form-control ingredient-unit';
     unit.placeholder = 'יחידה';
     unit.value = values.unit || '';
+    const preparation = document.createElement('input');
+    preparation.className = 'form-control ingredient-preparation';
+    preparation.placeholder = 'הכנה, למשל קצוץ';
+    preparation.value = values.preparation || '';
+    const substitutionGroup = document.createElement('input');
+    substitutionGroup.className = 'form-control ingredient-substitution-group';
+    substitutionGroup.placeholder = 'קבוצת תחליפים, למשל nut_butter';
+    substitutionGroup.value = values.substitution_group || '';
+    const optionalLabel = document.createElement('label');
+    const optional = document.createElement('input');
+    optional.className = 'ingredient-optional-input';
+    optional.type = 'checkbox';
+    optional.checked = Boolean(values.is_optional);
+    optionalLabel.append(optional, document.createTextNode('מצרך לא חובה'));
+    const substitutesLabel = document.createElement('label');
+    const acceptsSubstitutions = document.createElement('input');
+    acceptsSubstitutions.className = 'ingredient-substitutions-input';
+    acceptsSubstitutions.type = 'checkbox';
+    acceptsSubstitutions.checked = Boolean(values.accepts_substitutions);
+    substitutesLabel.append(acceptsSubstitutions, document.createTextNode('אפשר להשתמש בתחליף מהקבוצה'));
     const remove = document.createElement('button');
     remove.className = 'btn btn-ghost';
     remove.type = 'button';
@@ -2339,7 +2384,10 @@ html>body{padding:0}</style>
     remove.addEventListener('click', () => {
       if (container.children.length > 1) row.remove();
     });
-    row.append(name, quantity, unit, remove);
+    const options = document.createElement('div');
+    options.className = 'ingredient-editor-options';
+    options.append(preparation, substitutionGroup, optionalLabel, substitutesLabel);
+    row.append(name, quantity, unit, remove, options);
     container.append(row);
   }
 
@@ -2434,7 +2482,11 @@ html>body{padding:0}</style>
       const ingredientValues = [...ingredientRows.querySelectorAll('.ingredient-editor-row')].map(row => ({
         name: row.querySelector('.ingredient-name').value.trim(),
         quantity: row.querySelector('.ingredient-quantity').value ? Number(row.querySelector('.ingredient-quantity').value) : null,
-        unit: row.querySelector('.ingredient-unit').value.trim() || null
+        unit: row.querySelector('.ingredient-unit').value.trim() || null,
+        preparation: row.querySelector('.ingredient-preparation').value.trim() || null,
+        substitutionGroup: row.querySelector('.ingredient-substitution-group').value.trim() || null,
+        isOptional: row.querySelector('.ingredient-optional-input').checked,
+        acceptsSubstitutions: row.querySelector('.ingredient-substitutions-input').checked
       })).filter(item => item.name);
       if (!ingredientValues.length) return;
       save.disabled = true;
@@ -2459,8 +2511,17 @@ html>body{padding:0}</style>
         const links = [];
         for (let index = 0; index < ingredientValues.length; index++) {
           const ingredient = ingredientValues[index];
-          const ingredientId = await ensureIngredient(ingredient.name, ingredient.unit);
-          links.push({ recipe_id: recipeId, ingredient_id: ingredientId, quantity: ingredient.quantity, unit: ingredient.unit, sort_order: index });
+          const ingredientId = await ensureIngredient(ingredient.name, ingredient.unit, ingredient.substitutionGroup);
+          links.push({
+            recipe_id: recipeId,
+            ingredient_id: ingredientId,
+            quantity: ingredient.quantity,
+            unit: ingredient.unit,
+            preparation: ingredient.preparation,
+            is_optional: ingredient.isOptional,
+            accepts_substitutions: ingredient.acceptsSubstitutions,
+            sort_order: index
+          });
         }
         const linksResult = await client.from('recipe_ingredients').insert(links);
         if (linksResult.error) throw linksResult.error;
@@ -2533,7 +2594,14 @@ html>body{padding:0}</style>
       const status = document.createElement('span');
       const missing = Number(availability.missing_required_count || 0);
       const retrieve = Number(availability.retrieve_required_count || 0);
-      const stockDetail = missing ? ` · חסרים ${missing}` : retrieve ? ` · להביא מהמחסן ${retrieve}` : '';
+      const substitutions = Number(availability.substitution_match_count || 0);
+      const stockDetail = missing
+        ? ` · חסרים ${missing}`
+        : retrieve
+          ? ` · להביא מהמחסן ${retrieve}`
+          : substitutions
+            ? ` · נמצא תחליף מתאים ${substitutions}`
+            : '';
       status.textContent = recipe.ingredient_data_complete === false
         ? `⚪ מלאי: רשימת המצרכים עוד לא הוזנה · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`
         : `${availabilityLabels[availability.availability_status] || availabilityLabels.shopping_required}${stockDetail} · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`;
@@ -2565,6 +2633,220 @@ html>body{padding:0}</style>
     });
   }
 
+  function createRecipeEditForm(recipe) {
+    const form = document.createElement('form');
+    form.className = 'stock-form recipe-edit-form';
+    form.hidden = true;
+    const title = document.createElement('input');
+    title.placeholder = 'שם המתכון';
+    title.required = true;
+    title.value = recipe.title || '';
+    const category = document.createElement('select');
+    Object.entries(categoryLabels).forEach(([value, label]) => category.add(new Option(label, value)));
+    category.value = recipe.meal_category || 'other';
+    const servings = document.createElement('input');
+    servings.type = 'number';
+    servings.min = '0.5';
+    servings.step = '0.5';
+    servings.value = recipe.servings || 1;
+    servings.setAttribute('aria-label', 'מספר מנות');
+    const prepMinutes = document.createElement('input');
+    prepMinutes.type = 'number';
+    prepMinutes.min = '0';
+    prepMinutes.placeholder = 'דקות הכנה';
+    prepMinutes.value = recipe.prep_minutes ?? '';
+    const cookMinutes = document.createElement('input');
+    cookMinutes.type = 'number';
+    cookMinutes.min = '0';
+    cookMinutes.placeholder = 'דקות בישול';
+    cookMinutes.value = recipe.cook_minutes ?? '';
+    const effort = document.createElement('input');
+    effort.type = 'number';
+    effort.min = '1';
+    effort.max = '5';
+    effort.step = '0.5';
+    effort.placeholder = 'מאמץ 1–5';
+    effort.value = recipe.effort_level ?? '';
+    const t2d = document.createElement('select');
+    [['not_reviewed', 'T2D: עדיין לא נבדק'], ['suitable', 'T2D: מתאים כפי שהוא'], ['adjustments', 'T2D: דרושות התאמות'], ['not_suitable', 'T2D: לא מתאים כרגע']].forEach(([value, label]) => t2d.add(new Option(label, value)));
+    t2d.value = recipe.t2d_status || 'not_reviewed';
+    const sourceName = document.createElement('input');
+    sourceName.placeholder = 'מקור המתכון';
+    sourceName.value = recipe.source_name || '';
+    const sourceUrl = document.createElement('input');
+    sourceUrl.type = 'url';
+    sourceUrl.placeholder = 'קישור למקור';
+    sourceUrl.value = recipe.source_url || '';
+    const description = document.createElement('textarea');
+    description.className = 'wide';
+    description.rows = 2;
+    description.placeholder = 'תיאור קצר';
+    description.value = recipe.description || '';
+    const instructions = document.createElement('textarea');
+    instructions.className = 'wide';
+    instructions.rows = 6;
+    instructions.placeholder = 'איך מכינים?';
+    instructions.value = recipe.instructions || '';
+    const preparationNotes = document.createElement('textarea');
+    preparationNotes.className = 'wide';
+    preparationNotes.rows = 2;
+    preparationNotes.placeholder = 'הכנות מראש';
+    preparationNotes.value = recipe.preparation_notes || '';
+    const t2dNotes = document.createElement('textarea');
+    t2dNotes.className = 'wide';
+    t2dNotes.rows = 2;
+    t2dNotes.placeholder = 'התאמות או הערות T2D';
+    t2dNotes.value = recipe.t2d_notes || '';
+    const tags = document.createElement('input');
+    tags.className = 'wide';
+    tags.placeholder = 'תגיות, מופרדות בפסיקים';
+    tags.value = (tagsByRecipe.get(recipe.id) || []).map(item => item.recipe_tags?.name).filter(Boolean).join(', ');
+    const flags = document.createElement('div');
+    flags.className = 'stock-actions wide';
+    const freezerLabel = document.createElement('label');
+    const freezerSuitable = document.createElement('input');
+    freezerSuitable.type = 'checkbox';
+    freezerSuitable.checked = Boolean(recipe.freezer_suitable);
+    freezerLabel.append(freezerSuitable, document.createTextNode(' מתאים להקפאה'));
+    const emergencyLabel = document.createElement('label');
+    const emergencyMeal = document.createElement('input');
+    emergencyMeal.type = 'checkbox';
+    emergencyMeal.checked = Boolean(recipe.emergency_meal);
+    emergencyLabel.append(emergencyMeal, document.createTextNode(' ארוחת חירום'));
+    flags.append(freezerLabel, emergencyLabel);
+    const ingredientBlock = document.createElement('div');
+    ingredientBlock.className = 'wide stack';
+    const ingredientTitle = document.createElement('strong');
+    ingredientTitle.textContent = 'מצרכים';
+    const ingredientRows = document.createElement('div');
+    ingredientRows.className = 'stack';
+    const currentIngredients = ingredientsByRecipe.get(recipe.id) || [];
+    currentIngredients.forEach(item => addIngredientEditorRow(ingredientRows, {
+      name: item.ingredients?.name,
+      quantity: item.quantity,
+      unit: item.unit,
+      preparation: item.preparation,
+      is_optional: item.is_optional,
+      accepts_substitutions: item.accepts_substitutions,
+      substitution_group: item.ingredients?.substitution_group
+    }));
+    if (!currentIngredients.length) addIngredientEditorRow(ingredientRows);
+    const addIngredient = document.createElement('button');
+    addIngredient.className = 'btn';
+    addIngredient.type = 'button';
+    addIngredient.textContent = 'הוספת מצרך';
+    addIngredient.addEventListener('click', () => addIngredientEditorRow(ingredientRows));
+    ingredientBlock.append(ingredientTitle, ingredientRows, addIngredient);
+    const message = document.createElement('p');
+    message.className = 'text-destructive wide';
+    message.hidden = true;
+    const actions = document.createElement('div');
+    actions.className = 'stock-actions wide';
+    const save = document.createElement('button');
+    save.className = 'btn btn-primary';
+    save.type = 'submit';
+    save.textContent = 'שמירת השינויים';
+    const cancel = document.createElement('button');
+    cancel.className = 'btn';
+    cancel.type = 'button';
+    cancel.textContent = 'ביטול';
+    cancel.addEventListener('click', () => { form.hidden = true; });
+    actions.append(save, cancel);
+    form.append(
+      title, category, servings, prepMinutes, cookMinutes, effort, t2d,
+      sourceName, sourceUrl, flags, description, ingredientBlock,
+      instructions, preparationNotes, t2dNotes, tags, message, actions
+    );
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const ingredientValues = [...ingredientRows.querySelectorAll('.ingredient-editor-row')].map(row => ({
+        name: row.querySelector('.ingredient-name').value.trim(),
+        quantity: row.querySelector('.ingredient-quantity').value ? Number(row.querySelector('.ingredient-quantity').value) : null,
+        unit: row.querySelector('.ingredient-unit').value.trim() || null,
+        preparation: row.querySelector('.ingredient-preparation').value.trim() || null,
+        substitutionGroup: row.querySelector('.ingredient-substitution-group').value.trim() || null,
+        isOptional: row.querySelector('.ingredient-optional-input').checked,
+        acceptsSubstitutions: row.querySelector('.ingredient-substitutions-input').checked
+      })).filter(item => item.name);
+      if (!ingredientValues.length) {
+        message.textContent = 'צריך להשאיר לפחות מצרך אחד.';
+        message.hidden = false;
+        return;
+      }
+      save.disabled = true;
+      message.hidden = true;
+      setSync('שומר שינויים במתכון…');
+      try {
+        const links = [];
+        for (let index = 0; index < ingredientValues.length; index++) {
+          const ingredient = ingredientValues[index];
+          const ingredientId = await ensureIngredient(ingredient.name, ingredient.unit, ingredient.substitutionGroup);
+          links.push({
+            recipe_id: recipe.id,
+            ingredient_id: ingredientId,
+            quantity: ingredient.quantity,
+            unit: ingredient.unit,
+            preparation: ingredient.preparation,
+            is_optional: ingredient.isOptional,
+            accepts_substitutions: ingredient.acceptsSubstitutions,
+            sort_order: index
+          });
+        }
+        const recipeResult = await client.from('recipes').update({
+          title: title.value.trim(),
+          meal_category: category.value,
+          servings: Number(servings.value) || 1,
+          prep_minutes: prepMinutes.value ? Number(prepMinutes.value) : null,
+          cook_minutes: cookMinutes.value ? Number(cookMinutes.value) : null,
+          effort_level: effort.value ? Number(effort.value) : null,
+          t2d_status: t2d.value,
+          source_name: sourceName.value.trim() || null,
+          source_url: sourceUrl.value.trim() || null,
+          description: description.value.trim() || null,
+          instructions: instructions.value.trim() || null,
+          preparation_notes: preparationNotes.value.trim() || null,
+          t2d_notes: t2dNotes.value.trim() || null,
+          freezer_suitable: freezerSuitable.checked,
+          emergency_meal: emergencyMeal.checked,
+          ingredient_data_complete: true
+        }).eq('id', recipe.id).eq('household_id', activeHouseholdId);
+        if (recipeResult.error) throw recipeResult.error;
+        const removeIngredients = await client.from('recipe_ingredients').delete().eq('recipe_id', recipe.id);
+        if (removeIngredients.error) throw removeIngredients.error;
+        const insertIngredients = await client.from('recipe_ingredients').insert(links);
+        if (insertIngredients.error) throw insertIngredients.error;
+
+        const tagNames = [...new Set(tags.value.split(',').map(tag => tag.trim()).filter(Boolean))];
+        const savedTags = [];
+        for (const tagName of tagNames) {
+          const tagResult = await client.from('recipe_tags')
+            .upsert({ household_id: activeHouseholdId, name: tagName }, { onConflict: 'household_id,name' })
+            .select('id')
+            .single();
+          if (tagResult.error) throw tagResult.error;
+          savedTags.push(tagResult.data.id);
+        }
+        const removeTags = await client.from('recipe_tag_links').delete().eq('recipe_id', recipe.id);
+        if (removeTags.error) throw removeTags.error;
+        if (savedTags.length) {
+          const insertTags = await client.from('recipe_tag_links').insert(savedTags.map(tagId => ({ recipe_id: recipe.id, tag_id: tagId })));
+          if (insertTags.error) throw insertTags.error;
+        }
+        await loadHouseholdData();
+        const updatedRecipe = recipes.find(item => item.id === recipe.id);
+        if (updatedRecipe) renderRecipeDetail(updatedRecipe);
+        setSync('השינויים במתכון נשמרו', 'ready');
+      } catch (error) {
+        console.error(error);
+        message.textContent = `השינויים לא נשמרו: ${error.message || 'שגיאה'}`;
+        message.hidden = false;
+        save.disabled = false;
+        setSync('השינויים במתכון לא נשמרו', 'error');
+      }
+    });
+    return form;
+  }
+
   function renderRecipeDetail(recipe) {
     recipeDetail.replaceChildren();
     const heading = document.createElement('div');
@@ -2582,14 +2864,26 @@ html>body{padding:0}</style>
     close.type = 'button';
     close.textContent = 'סגירה';
     close.addEventListener('click', () => { recipeDetail.hidden = true; });
-    heading.append(titleWrap, close);
-    recipeDetail.append(heading);
+    const edit = document.createElement('button');
+    edit.className = 'btn btn-primary';
+    edit.type = 'button';
+    edit.textContent = 'עריכת המתכון';
+    const headingActions = document.createElement('div');
+    headingActions.className = 'stock-actions';
+    headingActions.append(edit, close);
+    heading.append(titleWrap, headingActions);
+    const editForm = createRecipeEditForm(recipe);
+    edit.addEventListener('click', () => { editForm.hidden = !editForm.hidden; });
+    recipeDetail.append(heading, editForm);
 
     const availability = availabilityByRecipe.get(recipe.id) || {};
     const summary = document.createElement('p');
+    const substitutionSummary = Number(availability.substitution_match_count || 0)
+      ? ` · נמצא תחליף מתאים ${availability.substitution_match_count}`
+      : '';
     summary.textContent = recipe.ingredient_data_complete === false
       ? `⚪ רשימת המצרכים עוד לא הוזנה · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`
-      : `${availabilityLabels[availability.availability_status] || availabilityLabels.shopping_required} · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`;
+      : `${availabilityLabels[availability.availability_status] || availabilityLabels.shopping_required}${substitutionSummary} · ${t2dLabels[recipe.t2d_status] || t2dLabels.not_reviewed}`;
     recipeDetail.append(summary);
 
     const blocks = [
@@ -2618,12 +2912,19 @@ html>body{padding:0}</style>
     const recipeIngredients = ingredientsByRecipe.get(recipe.id) || [];
     recipeIngredients.forEach(item => {
       const listItem = document.createElement('li');
-      const stockState = ingredientStockState(item);
-      const stockNote = item.is_optional ? '(לא חובה)' : stockState === 'missing' ? '— חסר' : stockState === 'retrieve' ? '— צריך להביא מהמחסן' : '';
-      listItem.textContent = [formatQuantity(item.quantity), item.unit, item.ingredients?.name, item.preparation, stockNote].filter(Boolean).join(' ');
+      const stockMatch = ingredientStockMatch(item);
+      const substitutionNote = stockMatch.substitution ? `— יש תחליף במלאי: ${stockMatch.substitution}` : '';
+      const substitutionPermission = item.accepts_substitutions && item.ingredients?.substitution_group
+        ? `(אפשר תחליף מקבוצת ${item.ingredients.substitution_group})`
+        : '';
+      const stockNote = item.is_optional
+        ? '(לא חובה)'
+        : substitutionNote
+          || (stockMatch.state === 'missing' ? '— חסר' : stockMatch.state === 'retrieve' ? '— צריך להביא מהמחסן' : '');
+      listItem.textContent = [formatQuantity(item.quantity), item.unit, item.ingredients?.name, item.preparation, substitutionPermission, stockNote].filter(Boolean).join(' ');
       if (item.is_optional) listItem.className = 'ingredient-optional';
-      else if (stockState === 'missing') listItem.className = 'ingredient-missing';
-      else if (stockState === 'retrieve') listItem.className = 'ingredient-retrieve';
+      else if (stockMatch.state === 'missing') listItem.className = 'ingredient-missing';
+      else if (stockMatch.state === 'retrieve') listItem.className = 'ingredient-retrieve';
       ingredientList.append(listItem);
     });
     if (!recipeIngredients.length) {
@@ -2928,7 +3229,8 @@ html>body{padding:0}</style>
           const result = await client.from('preparation_tasks').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', task.id).eq('household_id', activeHouseholdId);
           if (result.error) { setSync('ההכנה לא עודכנה', 'error'); return; }
           task.status = 'completed';
-          renderPreparations();
+          renderWeeklyPlanner();
+          renderTodayDashboard();
           setSync('ההכנה הושלמה', 'ready');
         });
         const reschedule = document.createElement('button');
@@ -3419,18 +3721,58 @@ html>body{padding:0}</style>
       row.append(document.createElement('span'));
     }
     if (plan) {
-      const existingTask = preparationTasks.find(task => task.meal_plan_id === plan.id && task.status !== 'cancelled');
+      const existingTasks = preparationTasks
+        .filter(task => task.meal_plan_id === plan.id && task.status === 'pending')
+        .sort((first, second) => new Date(first.scheduled_for || first.due_at) - new Date(second.scheduled_for || second.due_at));
       const prepButton = document.createElement('button');
-      prepButton.className = `btn${recipe?.preparation_notes && !existingTask ? ' btn-primary' : ''}`;
+      prepButton.className = `btn${recipe?.preparation_notes && !existingTasks.length ? ' btn-primary' : ''}`;
       prepButton.type = 'button';
       prepButton.style.gridColumn = '2 / -1';
-      prepButton.textContent = existingTask
-        ? `הכנה: ${new Intl.DateTimeFormat('he-IL', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(existingTask.scheduled_for || existingTask.due_at))}`
+      prepButton.textContent = existingTasks.length
+        ? `${existingTasks.length} שלבי הכנה מתוזמנים`
         : recipe?.preparation_notes ? 'נדרשת הכנה · בחירת זמן' : 'הוספת הכנה';
-      const editor = createPreparationEditor(plan, recipe, existingTask);
-      editor.hidden = true;
-      prepButton.addEventListener('click', () => { editor.hidden = !editor.hidden; });
-      row.append(prepButton, editor);
+      const panel = document.createElement('div');
+      panel.className = 'prep-inline prep-steps-panel';
+      panel.style.gridColumn = '1 / -1';
+      panel.hidden = true;
+      const taskList = document.createElement('div');
+      taskList.className = 'stack';
+      existingTasks.forEach(task => {
+        const taskRow = document.createElement('div');
+        taskRow.className = 'prep-step-row';
+        const taskCopy = document.createElement('div');
+        taskCopy.className = 'prep-step-copy';
+        const taskTitle = document.createElement('strong');
+        taskTitle.textContent = task.title;
+        const taskTime = document.createElement('span');
+        taskTime.className = 'text-muted';
+        taskTime.textContent = [
+          task.scheduled_for
+            ? `מתוכנן: ${new Intl.DateTimeFormat('he-IL', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(task.scheduled_for))}`
+            : '',
+          `מועד אחרון: ${new Intl.DateTimeFormat('he-IL', { weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(task.due_at))}`
+        ].filter(Boolean).join(' · ');
+        taskCopy.append(taskTitle, taskTime);
+        const editTask = document.createElement('button');
+        editTask.className = 'btn';
+        editTask.type = 'button';
+        editTask.textContent = 'עריכת השלב';
+        const taskEditor = createPreparationEditor(plan, recipe, task);
+        taskEditor.hidden = true;
+        editTask.addEventListener('click', () => { taskEditor.hidden = !taskEditor.hidden; });
+        taskRow.append(taskCopy, editTask, taskEditor);
+        taskList.append(taskRow);
+      });
+      const addStep = document.createElement('button');
+      addStep.className = 'btn btn-primary';
+      addStep.type = 'button';
+      addStep.textContent = 'הוספת שלב הכנה נוסף';
+      const newEditor = createPreparationEditor(plan, recipe, null);
+      newEditor.hidden = true;
+      addStep.addEventListener('click', () => { newEditor.hidden = !newEditor.hidden; });
+      panel.append(taskList, addStep, newEditor);
+      prepButton.addEventListener('click', () => { panel.hidden = !panel.hidden; });
+      row.append(prepButton, panel);
     }
     return row;
   }
@@ -4014,14 +4356,16 @@ html>body{padding:0}</style>
     document.getElementById('close-picker').onclick = closePlanner;
   }
 
-  async function ensureIngredient(name, unit) {
+  async function ensureIngredient(name, unit, substitutionGroup = null) {
     const existing = inventoryItems.find(item => (item.ingredients?.name || '').trim().toLocaleLowerCase('he') === name.trim().toLocaleLowerCase('he'));
-    if (existing) return existing.ingredient_id;
-    const result = await client.from('ingredients').upsert({
+    if (existing && (!substitutionGroup || existing.ingredients?.substitution_group === substitutionGroup)) return existing.ingredient_id;
+    const payload = {
       household_id: activeHouseholdId,
       name: name.trim(),
       default_unit: unit || null
-    }, { onConflict: 'household_id,name' }).select('id').single();
+    };
+    if (substitutionGroup) payload.substitution_group = substitutionGroup;
+    const result = await client.from('ingredients').upsert(payload, { onConflict: 'household_id,name' }).select('id').single();
     if (result.error) throw result.error;
     return result.data.id;
   }
@@ -4036,8 +4380,7 @@ html>body{padding:0}</style>
       .forEach(task => recipeSources.push({ recipeId: task.recipe_id, title: recipes.find(recipe => recipe.id === task.recipe_id)?.title || task.title }));
     recipeSources.forEach(source => {
       (ingredientsByRecipe.get(source.recipeId) || []).filter(item => !item.is_optional).forEach(item => {
-        const inStock = inventoryItems.some(stock => stock.ingredient_id === item.ingredient_id && (stock.quantity === null || Number(stock.quantity) > 0));
-        if (inStock) return;
+        if (ingredientStockState(item) !== 'missing') return;
         const key = `${item.ingredient_id}|${item.unit || ''}`;
         if (!missing.has(key)) {
           missing.set(key, { ingredientId: item.ingredient_id, name: item.ingredients?.name || 'מצרך', quantity: 0, hasQuantity: false, unit: item.unit || '', recipes: new Set() });
@@ -4612,9 +4955,9 @@ html>body{padding:0}</style>
       client.from('recipes').select('*').order('title'),
       client.from('recipe_availability').select('*'),
       client.from('recipe_feedback').select('recipe_id,person_name,sentiment,note,created_at').order('created_at'),
-      client.from('recipe_ingredients').select('recipe_id,ingredient_id,quantity,unit,preparation,is_optional,sort_order,ingredients(name)').order('sort_order'),
+      client.from('recipe_ingredients').select('recipe_id,ingredient_id,quantity,unit,preparation,is_optional,accepts_substitutions,sort_order,ingredients(name,substitution_group)').order('sort_order'),
       client.from('recipe_tag_links').select('recipe_id,recipe_tags(name,color)'),
-      client.from('inventory_items').select('id,ingredient_id,location_id,quantity,unit,is_approximate,stocked_at,frozen_at,best_before,notes,ingredients(name,category),locations(id,name,kind,access_level,sort_order)'),
+      client.from('inventory_items').select('id,ingredient_id,location_id,quantity,unit,is_approximate,stocked_at,frozen_at,best_before,notes,ingredients(name,category,substitution_group),locations(id,name,kind,access_level,sort_order)'),
       client.from('locations').select('id,name,kind,access_level,sort_order').order('sort_order'),
       client.from('leftovers').select('id,recipe_id,location_id,name,quantity,unit,is_approximate,prepared_at,frozen_at,best_before,notes,status,locations(id,name,kind,access_level,sort_order),recipes(title)').eq('status', 'active').order('prepared_at', { ascending: false }),
       client.from('special_occasions').select('*').order('occasion_date'),
