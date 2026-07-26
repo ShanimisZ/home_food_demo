@@ -942,8 +942,8 @@ html>body{padding:0}</style>
   .ingredient-editor-options label { display: flex; gap: 6px; align-items: center; color: var(--muted-foreground); font-size: .88rem; }
   .ingredient-editor-options input[type='checkbox'] { min-height: auto !important; width: auto; }
   .recipe-edit-form { margin-top: 12px; }
-  .recipe-drawer-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; align-items: end; background: rgba(55, 50, 42, .42); backdrop-filter: blur(3px); }
-  .recipe-drawer { width: min(760px, 100%); max-height: min(88vh, 900px); margin-inline: auto; overflow-y: auto; border: 1px solid var(--border); border-radius: 26px 26px 0 0; background: var(--background); padding: 14px; box-shadow: 0 -20px 60px rgba(55, 50, 42, .22); }
+  .recipe-drawer-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(55, 50, 42, .42); backdrop-filter: blur(3px); }
+  .recipe-drawer { box-sizing: border-box; width: min(900px, 100%); max-height: calc(100dvh - 48px); margin-inline: auto; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 26px; background: var(--background); padding: 14px; box-shadow: 0 24px 70px rgba(55, 50, 42, .24); scrollbar-gutter: stable; }
   .recipe-drawer #recipe-detail { display: grid; }
   .meal-card .detail-block[data-recipe-clickable='true'] { cursor: pointer; border-radius: 12px; padding: 10px; transition: background 140ms ease; }
   .meal-card .detail-block[data-recipe-clickable='true']:hover, .meal-card .detail-block[data-recipe-clickable='true']:focus-visible { background: rgba(232, 238, 227, .65); outline: none; }
@@ -964,6 +964,8 @@ html>body{padding:0}</style>
     .flexible-project-form, .flexible-project-row { grid-template-columns: 1fr; }
     .flexible-project-wide { grid-column: 1; }
     .auth-card { padding: 22px; }
+    .recipe-drawer-backdrop { place-items: end center; padding: 0; }
+    .recipe-drawer { width: 100%; max-height: 88dvh; border-radius: 26px 26px 0 0; box-shadow: 0 -20px 60px rgba(55, 50, 42, .22); scrollbar-gutter: auto; }
   }
 </style>
 </head>
