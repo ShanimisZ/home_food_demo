@@ -2766,6 +2766,22 @@ html>body{padding:0}</style>
         });
         line.append(open);
       }
+      const changePlan = document.createElement('button');
+      changePlan.className = 'btn';
+      changePlan.type = 'button';
+      changePlan.textContent = 'שינוי התכנון';
+      changePlan.addEventListener('click', () => {
+        visibleWeekOffset = 0;
+        openWeekView();
+        renderWeeklyPlanner();
+        openPlanner(
+          plan.planned_date,
+          plan.meal_slot,
+          plan.day_type,
+          mealSlotLabels[plan.meal_slot] || titleText
+        );
+      });
+      line.append(changePlan);
       card.append(line);
     });
     return card;
@@ -2794,37 +2810,43 @@ html>body{padding:0}</style>
       document.getElementById('save-day-checkin').hidden = true;
       return;
     }
-    if (plans.every(plan => plan.status !== 'planned')) {
-      const responders = [...new Set(plans.map(plan => plan.outcome_recorded_by).filter(Boolean))]
-        .map(userId => householdMembers.find(member => member.user_id === userId)?.display_name)
-        .filter(Boolean);
-      const recordedAt = plans.map(plan => plan.outcome_recorded_at).filter(Boolean).sort().at(-1);
-      const time = recordedAt ? new Intl.DateTimeFormat('he-IL', { hour: '2-digit', minute: '2-digit' }).format(new Date(recordedAt)) : '';
-      subtitle.textContent = 'היום כבר עודכן ואפשר לראות מה קרה בכל ארוחה.';
-      statusBadge.textContent = 'עודכן ✓';
-      plans.forEach(plan => {
-        const row = document.createElement('div');
-        row.className = 'meal-line';
-        const label = document.createElement('strong');
-        label.textContent = mealSlotLabels[plan.meal_slot] || 'ארוחה';
-        const name = document.createElement('span');
-        name.textContent = recipeForPlan(plan)?.title || plan.free_text || 'ללא שם';
-        const outcome = document.createElement('span');
-        outcome.className = 'text-muted';
-        outcome.textContent = outcomeLabels[plan.status] || plan.status;
-        row.append(label, name, outcome);
-        list.append(row);
-      });
-      resultMessage.textContent = `עודכן${responders.length ? ` על ידי ${responders.join(' ו')}` : ''}${time ? ` בשעה ${time}` : ''}.`;
-      resultMessage.className = 'checkin-confirmation';
-      resultMessage.hidden = false;
-      document.getElementById('save-day-checkin').hidden = true;
-      return;
+    const allRecorded = plans.every(plan => plan.status !== 'planned');
+    const responders = [...new Set(plans.map(plan => plan.outcome_recorded_by).filter(Boolean))]
+      .map(userId => householdMembers.find(member => member.user_id === userId)?.display_name)
+      .filter(Boolean);
+    const recordedAt = plans.map(plan => plan.outcome_recorded_at).filter(Boolean).sort().at(-1);
+    const time = recordedAt ? new Intl.DateTimeFormat('he-IL', { hour: '2-digit', minute: '2-digit' }).format(new Date(recordedAt)) : '';
+    subtitle.textContent = allRecorded
+      ? 'היום כבר עודכן. אפשר לתקן כל תשובה ולשמור מחדש.'
+      : 'עוברים על כל הארוחות שתוכננו ורק אז שומרים את היום כולו.';
+    resultMessage.textContent = allRecorded
+      ? `עודכן${responders.length ? ` על ידי ${responders.join(' ו')}` : ''}${time ? ` בשעה ${time}` : ''}.`
+      : '';
+    resultMessage.className = 'checkin-confirmation';
+    resultMessage.hidden = !allRecorded;
+    const originalStatuses = new Map(plans.map(plan => [plan.id, plan.status]));
+    const selections = new Map(
+      plans.filter(plan => plan.status !== 'planned').map(plan => [plan.id, plan.status])
+    );
+    const oldButton = document.getElementById('save-day-checkin');
+    const saveButton = oldButton.cloneNode(true);
+    oldButton.replaceWith(saveButton);
+    saveButton.hidden = false;
+    saveButton.textContent = allRecorded ? 'שמירת שינויים' : 'שמירת היום';
+
+    function updateCheckinState() {
+      const selectedCount = selections.size;
+      const hasChanges = plans.some(plan => selections.get(plan.id) !== originalStatuses.get(plan.id));
+      saveButton.disabled = selectedCount !== plans.length || !hasChanges;
+      if (selectedCount !== plans.length) {
+        statusBadge.textContent = `${selectedCount} מתוך ${plans.length}`;
+      } else if (hasChanges) {
+        statusBadge.textContent = 'יש שינוי לשמירה';
+      } else {
+        statusBadge.textContent = allRecorded ? 'עודכן ✓' : `${selectedCount} מתוך ${plans.length}`;
+      }
     }
-    subtitle.textContent = 'עוברים על כל הארוחות שתוכננו ורק אז שומרים את היום כולו.';
-    resultMessage.hidden = true;
-    const pendingPlans = plans.filter(plan => plan.status === 'planned');
-    const selections = new Map();
+
     plans.forEach(plan => {
       const recipe = recipeForPlan(plan);
       const row = document.createElement('div');
@@ -2833,33 +2855,26 @@ html>body{padding:0}</style>
       label.textContent = mealSlotLabels[plan.meal_slot] || 'ארוחה';
       const name = document.createElement('span');
       name.textContent = recipe?.title || plan.free_text || 'ללא שם';
-      const outcome = plan.status === 'planned' ? document.createElement('select') : document.createElement('span');
-      if (plan.status === 'planned') {
-        outcome.className = 'form-select live-outcome';
-        [['', 'מה קרה?'], ...Object.entries(outcomeLabels)].forEach(([value, text]) => outcome.add(new Option(text, value)));
-        outcome.addEventListener('change', () => {
-          if (outcome.value) selections.set(plan.id, outcome.value); else selections.delete(plan.id);
-          saveButton.disabled = selections.size !== pendingPlans.length;
-          statusBadge.textContent = `${selections.size} מתוך ${pendingPlans.length}`;
-        });
-      } else {
-        outcome.className = 'text-muted';
-        outcome.textContent = outcomeLabels[plan.status] || plan.status;
-      }
+      const outcome = document.createElement('select');
+      outcome.className = 'form-select live-outcome';
+      [['', 'מה קרה?'], ...Object.entries(outcomeLabels)].forEach(([value, text]) => outcome.add(new Option(text, value)));
+      outcome.value = plan.status === 'planned' ? '' : plan.status;
+      outcome.addEventListener('change', () => {
+        if (outcome.value) selections.set(plan.id, outcome.value); else selections.delete(plan.id);
+        updateCheckinState();
+      });
       row.append(label, name, outcome);
       list.append(row);
     });
-    const oldButton = document.getElementById('save-day-checkin');
-    const saveButton = oldButton.cloneNode(true);
-    oldButton.replaceWith(saveButton);
-    saveButton.hidden = false;
-    saveButton.disabled = true;
+    updateCheckinState();
     saveButton.addEventListener('click', async () => {
       saveButton.disabled = true;
       setSync('שומר את אתמול…');
-       const results = await Promise.all(pendingPlans.map(plan => client.from('meal_plans').update({
+      const changedPlans = plans.filter(plan => selections.get(plan.id) !== originalStatuses.get(plan.id));
+      const changedAt = new Date().toISOString();
+      const results = await Promise.all(changedPlans.map(plan => client.from('meal_plans').update({
           status: selections.get(plan.id),
-          completed_at: selections.get(plan.id) === 'completed' ? new Date().toISOString() : null,
+          completed_at: selections.get(plan.id) === 'completed' ? changedAt : null,
           outcome_recorded_at: new Date().toISOString(),
           outcome_recorded_by: activeUserId
         }).eq('id', plan.id).eq('household_id', activeHouseholdId)));
@@ -2869,9 +2884,10 @@ html>body{padding:0}</style>
         saveButton.disabled = false;
         return;
       }
-      pendingPlans.forEach(plan => {
+      changedPlans.forEach(plan => {
         plan.status = selections.get(plan.id);
-        plan.outcome_recorded_at = new Date().toISOString();
+        plan.completed_at = plan.status === 'completed' ? changedAt : null;
+        plan.outcome_recorded_at = changedAt;
         plan.outcome_recorded_by = activeUserId;
       });
       renderYesterdayCheckin();
