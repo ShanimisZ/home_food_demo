@@ -942,6 +942,11 @@ html>body{padding:0}</style>
   .ingredient-editor-options label { display: flex; gap: 6px; align-items: center; color: var(--muted-foreground); font-size: .88rem; }
   .ingredient-editor-options input[type='checkbox'] { min-height: auto !important; width: auto; }
   .recipe-edit-form { margin-top: 12px; }
+  .recipe-drawer-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; align-items: end; background: rgba(55, 50, 42, .42); backdrop-filter: blur(3px); }
+  .recipe-drawer { width: min(760px, 100%); max-height: min(88vh, 900px); margin-inline: auto; overflow-y: auto; border: 1px solid var(--border); border-radius: 26px 26px 0 0; background: var(--background); padding: 14px; box-shadow: 0 -20px 60px rgba(55, 50, 42, .22); }
+  .recipe-drawer #recipe-detail { display: grid; }
+  .meal-card .detail-block[data-recipe-clickable='true'] { cursor: pointer; border-radius: 12px; padding: 10px; transition: background 140ms ease; }
+  .meal-card .detail-block[data-recipe-clickable='true']:hover, .meal-card .detail-block[data-recipe-clickable='true']:focus-visible { background: rgba(232, 238, 227, .65); outline: none; }
   .recipe-create-shell { margin-bottom: 14px; }
   .manual-shopping-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 12px; }
   .prep-suggestion { display: grid; gap: 9px; }
@@ -2153,6 +2158,11 @@ html>body{padding:0}</style>
   const prepList = document.getElementById('prep-list');
   const prepCount = document.getElementById('prep-count');
   const yesterdayCheckin = document.getElementById('yesterday-checkin');
+  const recipeDetailHome = {
+    parent: recipeDetail.parentNode,
+    nextSibling: recipeDetail.nextSibling
+  };
+  let recipeDrawerBackdrop = null;
 
   let recipes = [];
   let mealPlans = [];
@@ -2163,6 +2173,7 @@ html>body{padding:0}</style>
   let householdMembers = [];
   let shoppingItems = [];
   let preparationTasks = [];
+  let preparationRules = [];
   let availabilityByRecipe = new Map();
   let feedbackByRecipe = new Map();
   let ingredientsByRecipe = new Map();
@@ -2218,6 +2229,43 @@ html>body{padding:0}</style>
   }
 
   setupWarmNavigation();
+
+  function restoreRecipeDetailHome() {
+    if (recipeDetail.parentNode === recipeDetailHome.parent) return;
+    if (recipeDetailHome.nextSibling?.parentNode === recipeDetailHome.parent) {
+      recipeDetailHome.parent.insertBefore(recipeDetail, recipeDetailHome.nextSibling);
+    } else {
+      recipeDetailHome.parent.append(recipeDetail);
+    }
+  }
+
+  function closeRecipeDrawer() {
+    if (!recipeDrawerBackdrop) return;
+    recipeDrawerBackdrop.hidden = true;
+    restoreRecipeDetailHome();
+  }
+
+  function openRecipeDrawer(recipe) {
+    renderRecipeDetail(recipe);
+    if (!recipeDrawerBackdrop) {
+      recipeDrawerBackdrop = document.createElement('div');
+      recipeDrawerBackdrop.className = 'recipe-drawer-backdrop';
+      recipeDrawerBackdrop.hidden = true;
+      const drawer = document.createElement('div');
+      drawer.className = 'recipe-drawer';
+      drawer.setAttribute('role', 'dialog');
+      drawer.setAttribute('aria-modal', 'true');
+      recipeDrawerBackdrop.append(drawer);
+      recipeDrawerBackdrop.addEventListener('click', event => {
+        if (event.target === recipeDrawerBackdrop) closeRecipeDrawer();
+      });
+      document.body.append(recipeDrawerBackdrop);
+    }
+    recipeDrawerBackdrop.querySelector('.recipe-drawer').append(recipeDetail);
+    recipeDrawerBackdrop.hidden = false;
+    recipeDetail.hidden = false;
+    recipeDrawerBackdrop.querySelector('.recipe-drawer').scrollTop = 0;
+  }
 
   function decorateSectionTitle(card, iconName) {
     const heading = card?.querySelector('.section-head h3');
@@ -2303,6 +2351,53 @@ html>body{padding:0}</style>
       tag.style.border = `1px solid ${color}`;
     }
     return tag;
+  }
+
+  const substitutionFamilies = [
+    { group: 'nut_butter', names: ['חמאת אגוזים', 'חמאת בוטנים', 'חמאת שקדים', 'חמאת קשיו', 'nut butter', 'peanut butter', 'almond butter', 'cashew butter'] },
+    { group: 'sesame_oil', names: ['שמן שומשום', 'שמן שומשום קלוי', 'sesame oil', 'toasted sesame oil'] },
+    { group: 'soy_sauce', names: ['תמרי', 'רוטב סויה', 'tamari', 'soy sauce'] },
+    { group: 'neutral_cooking_oil', names: ['שמן זית', 'שמן זרעי ענבים', 'olive oil', 'grapeseed oil'] },
+    { group: 'citrus_juice', names: ['מיץ לימון', 'מיץ ליים', 'lemon juice', 'lime juice'] }
+  ];
+
+  function normalizedRecipeText(value) {
+    return String(value || '').trim().toLocaleLowerCase();
+  }
+
+  function normalizeIngredientChoice(ingredient) {
+    const parts = ingredient.name.split(/\s+(?:or|או)\s+|\s*\/\s*/i).map(part => part.trim()).filter(Boolean);
+    if (parts.length < 2) return { ...ingredient, alternatives: [] };
+    const normalizedParts = parts.map(normalizedRecipeText);
+    const knownFamily = substitutionFamilies.find(family =>
+      normalizedParts.every(part => family.names.map(normalizedRecipeText).includes(part))
+    );
+    return {
+      ...ingredient,
+      name: parts[0],
+      alternatives: parts.slice(1),
+      acceptsSubstitutions: true,
+      substitutionGroup: knownFamily?.group || `choice:${normalizedParts.sort().join('|')}`
+    };
+  }
+
+  function applyPreparationKnowledge(ingredients, instructions, existingNotes) {
+    const notes = String(existingNotes || '').trim();
+    const searchableRecipe = normalizedRecipeText(`${instructions || ''}\n${notes}`);
+    const ingredientNames = ingredients
+      .flatMap(ingredient => [ingredient.name, ...(ingredient.alternatives || [])])
+      .map(normalizedRecipeText);
+    const additions = preparationRules
+      .filter(rule => rule.mandatory)
+      .filter(rule => ingredientNames.some(name => name.includes(normalizedRecipeText(rule.ingredient_pattern))))
+      .filter(rule => {
+        if (!rule.add_if_missing) return true;
+        const evidence = Array.isArray(rule.evidence_patterns) ? rule.evidence_patterns : [];
+        return !evidence.some(pattern => searchableRecipe.includes(normalizedRecipeText(pattern)))
+          && !searchableRecipe.includes(normalizedRecipeText(rule.preparation_text));
+      })
+      .map(rule => rule.preparation_text);
+    return [...new Set([notes, ...additions].filter(Boolean))].join('\n');
   }
 
   function ingredientStockMatch(ingredient) {
@@ -2463,6 +2558,14 @@ html>body{padding:0}</style>
     t2dNotes.className = 'wide';
     t2dNotes.rows = 2;
     t2dNotes.placeholder = 'התאמות או הערות T2D';
+    const servingNotes = document.createElement('textarea');
+    servingNotes.className = 'wide';
+    servingNotes.rows = 2;
+    servingNotes.placeholder = 'הגשה, רק אם מופיעה במתכון';
+    const storageNotes = document.createElement('textarea');
+    storageNotes.className = 'wide';
+    storageNotes.rows = 2;
+    storageNotes.placeholder = 'אחסון, רק אם ידוע מהמקור';
     const actions = document.createElement('div');
     actions.className = 'stock-actions wide';
     const save = document.createElement('button');
@@ -2475,7 +2578,7 @@ html>body{padding:0}</style>
     cancel.textContent = 'ביטול';
     cancel.addEventListener('click', () => { form.hidden = true; });
     actions.append(save, cancel);
-    form.append(title, category, origin, servings, prepMinutes, cookMinutes, t2d, ingredientBlock, instructions, preparationNotes, t2dNotes, actions);
+    form.append(title, category, origin, servings, prepMinutes, cookMinutes, t2d, ingredientBlock, instructions, preparationNotes, servingNotes, storageNotes, t2dNotes, actions);
     toggle.addEventListener('click', () => { form.hidden = !form.hidden; });
     form.addEventListener('submit', async event => {
       event.preventDefault();
@@ -2487,7 +2590,7 @@ html>body{padding:0}</style>
         substitutionGroup: row.querySelector('.ingredient-substitution-group').value.trim() || null,
         isOptional: row.querySelector('.ingredient-optional-input').checked,
         acceptsSubstitutions: row.querySelector('.ingredient-substitutions-input').checked
-      })).filter(item => item.name);
+      })).filter(item => item.name).map(normalizeIngredientChoice);
       if (!ingredientValues.length) return;
       save.disabled = true;
       setSync('שומר מתכון…');
@@ -2501,9 +2604,11 @@ html>body{padding:0}</style>
           prep_minutes: prepMinutes.value ? Number(prepMinutes.value) : null,
           cook_minutes: cookMinutes.value ? Number(cookMinutes.value) : null,
           instructions: instructions.value.trim() || null,
-          preparation_notes: preparationNotes.value.trim() || null,
+          preparation_notes: applyPreparationKnowledge(ingredientValues, instructions.value, preparationNotes.value) || null,
           t2d_status: t2d.value,
           t2d_notes: t2dNotes.value.trim() || null,
+          serving_notes: servingNotes.value.trim() || null,
+          storage_notes: storageNotes.value.trim() || null,
           source_name: origin.value.trim() || 'מתכון משפחתי'
         }).select('id').single();
         if (recipeResult.error) throw recipeResult.error;
@@ -2512,6 +2617,9 @@ html>body{padding:0}</style>
         for (let index = 0; index < ingredientValues.length; index++) {
           const ingredient = ingredientValues[index];
           const ingredientId = await ensureIngredient(ingredient.name, ingredient.unit, ingredient.substitutionGroup);
+          for (const alternativeName of ingredient.alternatives || []) {
+            await ensureIngredient(alternativeName, ingredient.unit, ingredient.substitutionGroup);
+          }
           links.push({
             recipe_id: recipeId,
             ingredient_id: ingredientId,
@@ -2697,6 +2805,16 @@ html>body{padding:0}</style>
     t2dNotes.rows = 2;
     t2dNotes.placeholder = 'התאמות או הערות T2D';
     t2dNotes.value = recipe.t2d_notes || '';
+    const servingNotes = document.createElement('textarea');
+    servingNotes.className = 'wide';
+    servingNotes.rows = 2;
+    servingNotes.placeholder = 'הגשה';
+    servingNotes.value = recipe.serving_notes || '';
+    const storageNotes = document.createElement('textarea');
+    storageNotes.className = 'wide';
+    storageNotes.rows = 2;
+    storageNotes.placeholder = 'אחסון';
+    storageNotes.value = recipe.storage_notes || '';
     const tags = document.createElement('input');
     tags.className = 'wide';
     tags.placeholder = 'תגיות, מופרדות בפסיקים';
@@ -2755,7 +2873,7 @@ html>body{padding:0}</style>
     form.append(
       title, category, servings, prepMinutes, cookMinutes, effort, t2d,
       sourceName, sourceUrl, flags, description, ingredientBlock,
-      instructions, preparationNotes, t2dNotes, tags, message, actions
+      instructions, preparationNotes, servingNotes, storageNotes, t2dNotes, tags, message, actions
     );
     form.addEventListener('submit', async event => {
       event.preventDefault();
@@ -2767,7 +2885,7 @@ html>body{padding:0}</style>
         substitutionGroup: row.querySelector('.ingredient-substitution-group').value.trim() || null,
         isOptional: row.querySelector('.ingredient-optional-input').checked,
         acceptsSubstitutions: row.querySelector('.ingredient-substitutions-input').checked
-      })).filter(item => item.name);
+      })).filter(item => item.name).map(normalizeIngredientChoice);
       if (!ingredientValues.length) {
         message.textContent = 'צריך להשאיר לפחות מצרך אחד.';
         message.hidden = false;
@@ -2781,6 +2899,9 @@ html>body{padding:0}</style>
         for (let index = 0; index < ingredientValues.length; index++) {
           const ingredient = ingredientValues[index];
           const ingredientId = await ensureIngredient(ingredient.name, ingredient.unit, ingredient.substitutionGroup);
+          for (const alternativeName of ingredient.alternatives || []) {
+            await ensureIngredient(alternativeName, ingredient.unit, ingredient.substitutionGroup);
+          }
           links.push({
             recipe_id: recipe.id,
             ingredient_id: ingredientId,
@@ -2804,7 +2925,9 @@ html>body{padding:0}</style>
           source_url: sourceUrl.value.trim() || null,
           description: description.value.trim() || null,
           instructions: instructions.value.trim() || null,
-          preparation_notes: preparationNotes.value.trim() || null,
+          preparation_notes: applyPreparationKnowledge(ingredientValues, instructions.value, preparationNotes.value) || null,
+          serving_notes: servingNotes.value.trim() || null,
+          storage_notes: storageNotes.value.trim() || null,
           t2d_notes: t2dNotes.value.trim() || null,
           freezer_suitable: freezerSuitable.checked,
           emergency_meal: emergencyMeal.checked,
@@ -2863,7 +2986,10 @@ html>body{padding:0}</style>
     close.className = 'btn';
     close.type = 'button';
     close.textContent = 'סגירה';
-    close.addEventListener('click', () => { recipeDetail.hidden = true; });
+    close.addEventListener('click', () => {
+      if (recipeDrawerBackdrop && !recipeDrawerBackdrop.hidden) closeRecipeDrawer();
+      else recipeDetail.hidden = true;
+    });
     const edit = document.createElement('button');
     edit.className = 'btn btn-primary';
     edit.type = 'button';
@@ -2891,7 +3017,9 @@ html>body{padding:0}</style>
       ['מקור משפחתי', !recipe.source_url ? recipe.source_name : null],
       ['התאמות לסוכרת', recipe.t2d_notes],
       ['הכנות מראש', recipe.preparation_notes],
-      ['הוראות', recipe.instructions]
+      ['בישול', recipe.instructions],
+      ['הגשה', recipe.serving_notes],
+      ['אחסון', recipe.storage_notes]
     ];
     blocks.forEach(([label, value]) => {
       if (!value) return;
@@ -3048,6 +3176,21 @@ html>body{padding:0}</style>
       const recipe = recipeForPlan(plan);
       const line = document.createElement('div');
       line.className = 'detail-block';
+      if (recipe) {
+        line.dataset.recipeClickable = 'true';
+        line.tabIndex = 0;
+        line.setAttribute('role', 'button');
+        line.setAttribute('aria-label', `פתיחת המתכון ${recipe.title}`);
+        line.addEventListener('click', event => {
+          if (!event.target.closest('button, a, input, select, textarea')) openRecipeDrawer(recipe);
+        });
+        line.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openRecipeDrawer(recipe);
+          }
+        });
+      }
       const planTitle = document.createElement('strong');
       planTitle.textContent = recipe?.title || plan.free_text || 'ארוחה';
       const details = document.createElement('span');
@@ -3061,10 +3204,7 @@ html>body{padding:0}</style>
         open.className = 'btn';
         open.type = 'button';
         open.textContent = 'פתיחת המתכון';
-        open.addEventListener('click', () => {
-          renderRecipeDetail(recipe);
-          appRoot.querySelector('.nav-btn[data-target="recipes"]').click();
-        });
+        open.addEventListener('click', () => openRecipeDrawer(recipe));
         line.append(open);
       }
       const changePlan = document.createElement('button');
@@ -3258,6 +3398,15 @@ html>body{padding:0}</style>
           renderTodayDashboard();
           setSync('ההכנה בוטלה', 'ready');
         });
+        const relatedRecipe = task.recipe_id ? recipes.find(recipe => recipe.id === task.recipe_id) : null;
+        if (relatedRecipe) {
+          const openRecipe = document.createElement('button');
+          openRecipe.className = 'btn';
+          openRecipe.type = 'button';
+          openRecipe.textContent = 'פתיחת המתכון';
+          openRecipe.addEventListener('click', () => openRecipeDrawer(relatedRecipe));
+          actions.append(openRecipe);
+        }
         actions.append(done, reschedule, cancelTask);
 
         const editor = document.createElement('form');
@@ -4951,7 +5100,7 @@ html>body{padding:0}</style>
     const rangeStart = new Date(previousWeekValues[0]);
     rangeStart.setDate(rangeStart.getDate() - 1);
     const rangeEnd = nextWeekValues[6];
-    const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult, shoppingResult] = await Promise.all([
+    const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult, shoppingResult, preparationRulesResult] = await Promise.all([
       client.from('recipes').select('*').order('title'),
       client.from('recipe_availability').select('*'),
       client.from('recipe_feedback').select('recipe_id,person_name,sentiment,note,created_at').order('created_at'),
@@ -4964,9 +5113,10 @@ html>body{padding:0}</style>
       client.from('household_members').select('user_id,display_name,role').eq('household_id', activeHouseholdId),
       client.from('meal_plans').select('*').gte('planned_date', localDateString(rangeStart)).lte('planned_date', localDateString(rangeEnd)).order('planned_date'),
       client.from('preparation_tasks').select('*').neq('status', 'cancelled').order('due_at'),
-      client.from('shopping_items').select('*').is('purchased_at', null).order('created_at')
+      client.from('shopping_items').select('*').is('purchased_at', null).order('created_at'),
+      client.from('ingredient_preparation_rules').select('ingredient_pattern,preparation_text,evidence_patterns,mandatory,add_if_missing,sort_order').order('sort_order')
     ]);
-    const failure = [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult, shoppingResult].find(result => result.error);
+    const failure = [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult, shoppingResult, preparationRulesResult].find(result => result.error);
     if (failure) throw failure.error;
 
     recipes = recipesResult.data || [];
@@ -4982,6 +5132,7 @@ html>body{padding:0}</style>
     householdMembers = membersResult.data || [];
     preparationTasks = preparationsResult.data || [];
     shoppingItems = shoppingResult.data || [];
+    preparationRules = preparationRulesResult.data || [];
     setupRecipeCreator();
     renderRecipeFilters();
     renderRecipes();
