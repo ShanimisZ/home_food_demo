@@ -907,7 +907,9 @@ html>body{padding:0}</style>
   .stock-form input, .stock-form select, .stock-form textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; background: var(--background); color: var(--foreground); font: inherit; }
   .stock-form .wide { grid-column: 1 / -1; }
   .stock-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .inventory-list { display: grid; gap: 8px; padding: 0; list-style: none; }
+  #home-food-trial .inventory-grid { align-items: start; }
+  .inventory-section { align-self: start; align-content: start; }
+  .inventory-list { display: grid; align-content: start; gap: 8px; padding: 0; list-style: none; }
   .inventory-item-row, .leftover-row { display: grid; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
   .inventory-item-summary { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
   .leftover-meta { color: var(--muted-foreground); font-size: .85rem; }
@@ -2360,7 +2362,8 @@ html>body{padding:0}</style>
     { group: 'sesame_oil', label: 'שמן שומשום רגיל או קלוי', names: ['שמן שומשום', 'שמן שומשום קלוי', 'sesame oil', 'toasted sesame oil'] },
     { group: 'soy_sauce', label: 'רוטב סויה או תמרי', names: ['תמרי', 'רוטב סויה', 'tamari', 'soy sauce'] },
     { group: 'neutral_cooking_oil', label: 'שמן זית או שמן זרעי ענבים', names: ['שמן זית', 'שמן זרעי ענבים', 'olive oil', 'grapeseed oil'] },
-    { group: 'citrus_juice', label: 'מיץ לימון או ליים', names: ['מיץ לימון', 'מיץ ליים', 'lemon juice', 'lime juice'] }
+    { group: 'citrus_juice', label: 'מיץ לימון או ליים', names: ['מיץ לימון', 'מיץ ליים', 'lemon juice', 'lime juice'] },
+    { group: 'ginger', label: 'ג׳ינג׳ר טרי או קפוא', names: ['ג׳ינג׳ר טרי', 'ג׳ינג׳ר קפוא', "ג'ינג'ר טרי", "ג'ינג'ר קפוא", 'fresh ginger', 'frozen ginger'] }
   ];
 
   function normalizedRecipeText(value) {
@@ -2408,10 +2411,30 @@ html>body{padding:0}</style>
     select.setAttribute('aria-label', 'קבוצת תחליפים');
     select.add(new Option('ללא קבוצת תחליפים', ''));
     substitutionFamilies.forEach(family => select.add(new Option(family.label, family.group)));
-    if (currentValue && !substitutionFamilies.some(family => family.group === currentValue)) {
-      select.add(new Option(`קבוצה קיימת: ${currentValue}`, currentValue));
-    }
+    const knownGroups = new Set(substitutionFamilies.map(family => family.group));
+    const customGroups = new Set(
+      [
+        ...inventoryItems.map(item => item.ingredients?.substitution_group),
+        ...[...ingredientsByRecipe.values()].flat().map(item => item.ingredients?.substitution_group),
+        currentValue
+      ].filter(group => group && !knownGroups.has(group))
+    );
+    customGroups.forEach(group => {
+      const label = String(group).replace(/^custom:/, '');
+      select.add(new Option(`קבוצה מותאמת: ${label}`, group));
+    });
+    select.add(new Option('＋ יצירת קבוצת תחליפים חדשה…', '__new__'));
     select.value = currentValue || '';
+    select.addEventListener('change', () => {
+      if (select.value !== '__new__') return;
+      const label = window.prompt('איך לקרוא לקבוצת התחליפים החדשה? לדוגמה: עגבניות טריות או קפואות');
+      if (!label?.trim()) {
+        select.value = '';
+        return;
+      }
+      const value = `custom:${label.trim()}`;
+      select.add(new Option(`קבוצה מותאמת: ${label.trim()}`, value, true, true), select.options.length - 1);
+    });
     return select;
   }
 
@@ -2524,6 +2547,9 @@ html>body{padding:0}</style>
     acceptsSubstitutions.className = 'ingredient-substitutions-input';
     acceptsSubstitutions.type = 'checkbox';
     acceptsSubstitutions.checked = Boolean(values.accepts_substitutions);
+    substitutionGroup.addEventListener('change', () => {
+      acceptsSubstitutions.checked = Boolean(substitutionGroup.value && substitutionGroup.value !== '__new__');
+    });
     substitutesLabel.append(acceptsSubstitutions, document.createTextNode('אפשר להשתמש בתחליף מהקבוצה'));
     const remove = document.createElement('button');
     remove.className = 'btn btn-ghost';
