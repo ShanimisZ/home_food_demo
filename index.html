@@ -2356,11 +2356,11 @@ html>body{padding:0}</style>
   }
 
   const substitutionFamilies = [
-    { group: 'nut_butter', names: ['חמאת אגוזים', 'חמאת בוטנים', 'חמאת שקדים', 'חמאת קשיו', 'nut butter', 'peanut butter', 'almond butter', 'cashew butter'] },
-    { group: 'sesame_oil', names: ['שמן שומשום', 'שמן שומשום קלוי', 'sesame oil', 'toasted sesame oil'] },
-    { group: 'soy_sauce', names: ['תמרי', 'רוטב סויה', 'tamari', 'soy sauce'] },
-    { group: 'neutral_cooking_oil', names: ['שמן זית', 'שמן זרעי ענבים', 'olive oil', 'grapeseed oil'] },
-    { group: 'citrus_juice', names: ['מיץ לימון', 'מיץ ליים', 'lemon juice', 'lime juice'] }
+    { group: 'nut_butter', label: 'חמאות אגוזים ובוטנים', names: ['חמאת אגוזים', 'חמאת בוטנים', 'חמאת שקדים', 'חמאת קשיו', 'nut butter', 'peanut butter', 'almond butter', 'cashew butter'] },
+    { group: 'sesame_oil', label: 'שמן שומשום רגיל או קלוי', names: ['שמן שומשום', 'שמן שומשום קלוי', 'sesame oil', 'toasted sesame oil'] },
+    { group: 'soy_sauce', label: 'רוטב סויה או תמרי', names: ['תמרי', 'רוטב סויה', 'tamari', 'soy sauce'] },
+    { group: 'neutral_cooking_oil', label: 'שמן זית או שמן זרעי ענבים', names: ['שמן זית', 'שמן זרעי ענבים', 'olive oil', 'grapeseed oil'] },
+    { group: 'citrus_juice', label: 'מיץ לימון או ליים', names: ['מיץ לימון', 'מיץ ליים', 'lemon juice', 'lime juice'] }
   ];
 
   function normalizedRecipeText(value) {
@@ -2400,6 +2400,19 @@ html>body{padding:0}</style>
 
   function canonicalIngredientName(name) {
     return normalizedRecipeText(separateIngredientPreparation(name).name);
+  }
+
+  function createSubstitutionGroupSelect(currentValue = '') {
+    const select = document.createElement('select');
+    select.className = 'form-select ingredient-substitution-group';
+    select.setAttribute('aria-label', 'קבוצת תחליפים');
+    select.add(new Option('ללא קבוצת תחליפים', ''));
+    substitutionFamilies.forEach(family => select.add(new Option(family.label, family.group)));
+    if (currentValue && !substitutionFamilies.some(family => family.group === currentValue)) {
+      select.add(new Option(`קבוצה קיימת: ${currentValue}`, currentValue));
+    }
+    select.value = currentValue || '';
+    return select;
   }
 
   function normalizeIngredientChoice(ingredient) {
@@ -2499,10 +2512,7 @@ html>body{padding:0}</style>
     preparation.className = 'form-control ingredient-preparation';
     preparation.placeholder = 'הכנה, למשל קצוץ';
     preparation.value = values.preparation || '';
-    const substitutionGroup = document.createElement('input');
-    substitutionGroup.className = 'form-control ingredient-substitution-group';
-    substitutionGroup.placeholder = 'קבוצת תחליפים, למשל nut_butter';
-    substitutionGroup.value = values.substitution_group || '';
+    const substitutionGroup = createSubstitutionGroupSelect(values.substitution_group || '');
     const optionalLabel = document.createElement('label');
     const optional = document.createElement('input');
     optional.className = 'ingredient-optional-input';
@@ -4804,6 +4814,22 @@ html>body{padding:0}</style>
     await loadHouseholdData();
   }
 
+  async function resolveInventoryIngredient(item, requestedName, unit, substitutionGroup) {
+    const cleanedName = separateIngredientPreparation(requestedName).name.trim();
+    if (!cleanedName) throw new Error('Missing inventory ingredient name');
+    let ingredientId = item.ingredient_id;
+    if (canonicalIngredientName(cleanedName) !== normalizedRecipeText(item.ingredients?.name)) {
+      ingredientId = await ensureIngredient(cleanedName, unit, substitutionGroup || null);
+    }
+    const ingredientResult = await client.from('ingredients').update({
+      name: cleanedName,
+      default_unit: unit || null,
+      substitution_group: substitutionGroup || null
+    }).eq('id', ingredientId).eq('household_id', activeHouseholdId);
+    if (ingredientResult.error) throw ingredientResult.error;
+    return ingredientId;
+  }
+
   function createInventoryRow(item) {
     const row = document.createElement('li');
     row.className = 'inventory-item-row';
@@ -4811,7 +4837,13 @@ html>body{padding:0}</style>
     summary.className = 'inventory-item-summary';
     const text = document.createElement('span');
     const amount = [item.is_approximate ? 'בערך' : '', formatQuantity(item.quantity), item.unit].filter(Boolean).join(' ');
-    text.textContent = [item.ingredients?.name || 'פריט', amount, item.notes].filter(Boolean).join(' · ');
+    const substitutionLabel = substitutionFamilies.find(family => family.group === item.ingredients?.substitution_group)?.label;
+    text.textContent = [
+      item.ingredients?.name || 'פריט',
+      amount,
+      substitutionLabel ? `תחליפים: ${substitutionLabel}` : '',
+      item.notes
+    ].filter(Boolean).join(' · ');
     const edit = document.createElement('button');
     edit.className = 'btn';
     edit.type = 'button';
@@ -4825,7 +4857,14 @@ html>body{padding:0}</style>
       bestBefore: item.best_before,
       onSave: async values => {
         const moved = values.locationId !== item.location_id;
+        const ingredientId = await resolveInventoryIngredient(
+          item,
+          ingredientNameInput.value,
+          values.unit,
+          substitutionGroupSelect.value
+        );
         const result = await client.from('inventory_items').update({
+          ingredient_id: ingredientId,
           quantity: values.quantity,
           unit: values.unit || null,
           location_id: values.locationId,
@@ -4835,7 +4874,7 @@ html>body{padding:0}</style>
         if (result.error) throw result.error;
         const eventResult = await client.from('inventory_events').insert({
           household_id: activeHouseholdId,
-          ingredient_id: item.ingredient_id,
+          ingredient_id: ingredientId,
           inventory_item_id: item.id,
           location_id: values.locationId,
           event_type: moved ? 'move' : 'adjust',
@@ -4847,6 +4886,15 @@ html>body{padding:0}</style>
         await loadHouseholdData();
       }
     });
+    const ingredientNameInput = document.createElement('input');
+    ingredientNameInput.className = 'wide';
+    ingredientNameInput.placeholder = 'שם חומר הגלם';
+    ingredientNameInput.value = item.ingredients?.name || '';
+    ingredientNameInput.required = true;
+    const substitutionGroupSelect = createSubstitutionGroupSelect(item.ingredients?.substitution_group || '');
+    substitutionGroupSelect.classList.add('wide');
+    form.insertBefore(substitutionGroupSelect, form.firstChild);
+    form.insertBefore(ingredientNameInput, form.firstChild);
     form.hidden = true;
     const actions = form.querySelector('.stock-actions');
     [['נגמר', 'consume'], ['התקלקל', 'spoiled']].forEach(([label, eventType]) => {
@@ -5021,9 +5069,14 @@ html>body{padding:0}</style>
       locationId: location.id,
       saveLabel: 'הוספה למלאי',
       onSave: async values => {
-        const itemName = nameInput.value.trim();
+        const itemName = separateIngredientPreparation(nameInput.value).name.trim();
         if (!itemName) throw new Error('Missing inventory item name');
-        const ingredientId = await ensureIngredient(itemName, values.unit);
+        const ingredientId = await ensureIngredient(itemName, values.unit, substitutionGroupSelect.value || null);
+        const ingredientResult = await client.from('ingredients').update({
+          default_unit: values.unit || null,
+          substitution_group: substitutionGroupSelect.value || null
+        }).eq('id', ingredientId).eq('household_id', activeHouseholdId);
+        if (ingredientResult.error) throw ingredientResult.error;
         const existing = inventoryItems.find(item => item.ingredient_id === ingredientId && item.location_id === values.locationId && (item.unit || '') === values.unit);
         let savedItemId;
         if (existing) {
@@ -5067,6 +5120,9 @@ html>body{padding:0}</style>
     nameInput.className = 'wide';
     nameInput.placeholder = 'שם המוצר או המצרך';
     nameInput.required = true;
+    const substitutionGroupSelect = createSubstitutionGroupSelect();
+    substitutionGroupSelect.classList.add('wide');
+    form.insertBefore(substitutionGroupSelect, form.firstChild);
     form.insertBefore(nameInput, form.firstChild);
     form.hidden = true;
     return form;
