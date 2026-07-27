@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data: https://fuqfnccvuarjcwvqgupq.supabase.co wss://fuqfnccvuarjcwvqgupq.supabase.co; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src 'self' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data: https://fuqfnccvuarjcwvqgupq.supabase.co wss://fuqfnccvuarjcwvqgupq.supabase.co; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>האוכל בבית</title>
 <style>:root {
   color-scheme: light dark;
@@ -953,6 +953,32 @@ html>body{padding:0}</style>
   .manual-shopping-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 12px; }
   .prep-suggestion { display: grid; gap: 9px; }
   .prep-suggestion-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .kitchen-celebration-layer { position: fixed; inset: 0; z-index: 300; overflow: hidden; pointer-events: none; }
+  .kitchen-celebration-toast { position: absolute; top: 48%; left: 50%; width: min(420px, calc(100% - 28px)); display: grid; justify-items: center; gap: 14px; padding: 25px; border: 1px solid rgba(222, 215, 202, .92); border-radius: 32px; color: var(--foreground); background: linear-gradient(145deg, rgba(255, 253, 248, .99), rgba(249, 239, 231, .99)); box-shadow: 0 26px 80px rgba(55, 50, 42, .2), inset 0 0 0 4px rgba(255,255,255,.5); opacity: 0; transform: translate(-50%, -50%) scale(.86); animation: kitchen-toast-in 8000ms ease both; }
+  .kitchen-celebration-toast.not-done { background: linear-gradient(145deg, rgba(255, 251, 247, .99), rgba(247, 225, 218, .99)); box-shadow: 0 26px 80px rgba(98, 67, 60, .22), inset 0 0 0 4px rgba(255,255,255,.5); }
+  .kitchen-celebration-stage { display: grid; width: 132px; height: 112px; margin-bottom: 10px; place-items: center; }
+  .kitchen-celebration-stage.herbs-stage { width: 118px; height: 126px; margin-bottom: 14px; }
+  .kitchen-celebration-stage.peas-stage { width: 100px; height: 132px; margin-bottom: 18px; }
+  .kitchen-celebration-stage.coffee-stage { width: 118px; height: 122px; margin-bottom: 18px; }
+  .kitchen-celebration-stage.whisk-stage { width: 110px; height: 138px; margin-bottom: 24px; }
+  .kitchen-celebration-stage.dog-stage { width: 138px; height: 132px; }
+  .kitchen-celebration-character { display: block; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 78%; animation: kitchen-character-pop 1050ms cubic-bezier(.2,1.35,.35,1); filter: drop-shadow(0 9px 9px rgba(83,72,52,.15)); }
+  .kitchen-celebration-stage.whisk-stage .kitchen-celebration-character { object-position: center top; transform-origin: 72% 18%; animation: kitchen-whisk-stir 1500ms cubic-bezier(.4,0,.2,1); }
+  .kitchen-celebration-copy { display: grid; justify-items: center; gap: 6px; text-align: center; }
+  .kitchen-celebration-copy > * { opacity: 0; transform: translateY(8px); clip-path: inset(0 0 100% 0); animation: kitchen-text-reveal 560ms cubic-bezier(.2,.75,.25,1) forwards; }
+  .kitchen-celebration-copy strong { color: #66534b; font-size: 1.3rem; animation-delay: 360ms; }
+  .kitchen-celebration-detail { color: var(--muted-foreground); animation-delay: 620ms; }
+  .kitchen-celebration-quote { display: grid; gap: 2px; margin: 7px 0 0; padding-top: 9px; border-top: 1px solid rgba(177, 157, 139, .28); color: #756982; font-family: Georgia, "Times New Roman", serif; font-size: .9rem; line-height: 1.35; direction: ltr; animation-delay: 900ms !important; }
+  .kitchen-celebration-quote cite { color: #9a8da5; font-family: Arial, sans-serif; font-size: .72rem; font-style: normal; }
+  .kitchen-herb-particle, .kitchen-spark { position: absolute; left: var(--x); top: 64%; opacity: 0; animation: kitchen-float-up var(--duration) ease-out var(--delay) both; }
+  .kitchen-herb-particle { display: block; width: var(--size); height: calc(var(--size) * 1.35); color: var(--color); filter: drop-shadow(0 2px 2px rgba(72,94,66,.18)); transform-origin: 50% 100%; }
+  .kitchen-herb-particle svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .kitchen-spark { color: var(--particle-color, #d1a96f); font-size: var(--size); font-style: normal; }
+  @keyframes kitchen-toast-in { 0% { opacity: 0; transform: translate(-50%, -42%) scale(.86); } 6%, 92% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -56%) scale(.96); } }
+  @keyframes kitchen-text-reveal { from { opacity: 0; transform: translateY(8px); clip-path: inset(0 0 100% 0); } to { opacity: 1; transform: translateY(0); clip-path: inset(0); } }
+  @keyframes kitchen-character-pop { 0% { opacity: 0; transform: translateY(18px) scale(.35) rotate(-8deg); } 62% { opacity: 1; transform: translateY(-4px) scale(1.1) rotate(4deg); } 82% { transform: translateY(1px) scale(.96) rotate(-2deg); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes kitchen-whisk-stir { 0% { opacity: 0; transform: translate(13px,-4px) rotate(18deg) scale(.7); } 22% { opacity: 1; transform: translate(-7px,3px) rotate(-18deg) scale(1.04); } 42% { transform: translate(8px,-1px) rotate(15deg) scale(1); } 62% { transform: translate(-7px,3px) rotate(-16deg) scale(1.02); } 82% { transform: translate(5px,0) rotate(10deg) scale(1); } 100% { opacity: 1; transform: translate(0) rotate(0) scale(1); } }
+  @keyframes kitchen-float-up { 0% { opacity: 0; transform: translate(0,10px) rotate(0deg) scale(.7); } 15% { opacity: .95; } 100% { opacity: 0; transform: translate(var(--drift),-46vh) rotate(var(--rotation)) scale(1.1); } }
   @media (max-width: 640px) { .ingredient-editor-row { grid-template-columns: 1fr 1fr; } .ingredient-editor-row > input:first-child { grid-column: 1 / -1; } .ingredient-editor-options { grid-template-columns: 1fr; } }
   @media (max-width: 720px) {
     #home-food-trial { padding: 10px 10px 30px; }
@@ -969,6 +995,7 @@ html>body{padding:0}</style>
     .recipe-drawer-backdrop { place-items: end center; padding: 0; }
     .recipe-drawer { width: 100%; max-height: 88dvh; border-radius: 26px 26px 0 0; box-shadow: 0 -20px 60px rgba(55, 50, 42, .22); scrollbar-gutter: auto; }
   }
+  @media (prefers-reduced-motion: reduce) { .kitchen-celebration-layer *, .kitchen-celebration-layer *::before, .kitchen-celebration-layer *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; } }
 </style>
 </head>
 <body class="app-locked">
@@ -2123,6 +2150,7 @@ html>body{padding:0}</style>
 })();
 </script>
 
+<div id="kitchen-celebration-layer" class="kitchen-celebration-layer" aria-live="polite"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (() => {
@@ -2162,11 +2190,146 @@ html>body{padding:0}</style>
   const prepList = document.getElementById('prep-list');
   const prepCount = document.getElementById('prep-count');
   const yesterdayCheckin = document.getElementById('yesterday-checkin');
+  const kitchenCelebrationLayer = document.getElementById('kitchen-celebration-layer');
   const recipeDetailHome = {
     parent: recipeDetail.parentNode,
     nextSibling: recipeDetail.nextSibling
   };
   let recipeDrawerBackdrop = null;
+  let kitchenCelebrationTimer = null;
+  let previousCelebrationQuoteIndex = -1;
+  const completionIllustrations = [
+    { key: 'herbs', path: 'celebration-assets/kawaii-herbs.png', stageClass: 'herbs-stage' },
+    { key: 'sushi', path: 'celebration-assets/kawaii-sushi.png', stageClass: 'sushi-stage' },
+    { key: 'peas', path: 'celebration-assets/kawaii-peas.png', stageClass: 'peas-stage' },
+    { key: 'mushroom', path: 'celebration-assets/kawaii-mushroom.png', stageClass: 'mushroom-stage' },
+    { key: 'coffee', path: 'celebration-assets/kawaii-coffee.png', stageClass: 'coffee-stage' },
+    { key: 'egg', path: 'celebration-assets/kawaii-egg.png', stageClass: 'egg-stage' },
+    { key: 'pot', path: 'celebration-assets/kawaii-pot.png', stageClass: 'pot-stage' },
+    { key: 'oven', path: 'celebration-assets/kawaii-oven.png', stageClass: 'oven-stage' },
+    { key: 'whisk', path: 'celebration-assets/kawaii-whisk.png', stageClass: 'whisk-stage' },
+    { key: 'tofu', path: 'celebration-assets/kawaii-tofu.png', stageClass: 'tofu-stage' }
+  ];
+  const completionMessages = [
+    ['העתיד שלכם מודה לכם', 'עוד דבר אחד שפחות צריך לחשוב עליו'],
+    ['יש! ההכנה מאחוריכם', 'הערב כבר נהיה קל יותר'],
+    ['ניצחון קטן במטבח', 'בדיוק ככה מורידים עומס'],
+    ['איזה כיף שסיימתם', 'עכשיו אפשר לנשום קצת']
+  ];
+  const celebrationQuotes = [
+    { text: 'Everyone is relevant to someone.', speaker: 'Nathan Ingram', source: 'Person of Interest' },
+    { text: 'Always, Mr. Reese.', speaker: 'Harold Finch', source: 'Person of Interest' },
+    { text: 'Because I built it.', speaker: 'Harold Finch', source: 'Person of Interest' },
+    { text: 'Can you hear me?', speaker: 'The Machine', source: 'Person of Interest' },
+    { text: "No one ever said we were gonna win, but it doesn't mean you stop fighting.", speaker: 'Lionel Fusco', source: 'Person of Interest' },
+    { text: 'Make it so.', speaker: 'Jean-Luc Picard', source: 'Star Trek' },
+    { text: 'Engage!', speaker: 'Jean-Luc Picard', source: 'Star Trek' },
+    { text: 'Tea. Earl Grey. Hot.', speaker: 'Jean-Luc Picard', source: 'Star Trek' },
+    { text: "Things are only impossible until they're not.", speaker: 'Jean-Luc Picard', source: 'Star Trek' }
+  ];
+
+  function randomCelebrationQuote() {
+    let quoteIndex = Math.floor(Math.random() * celebrationQuotes.length);
+    if (celebrationQuotes.length > 1 && quoteIndex === previousCelebrationQuoteIndex) {
+      quoteIndex = (quoteIndex + 1 + Math.floor(Math.random() * (celebrationQuotes.length - 1))) % celebrationQuotes.length;
+    }
+    previousCelebrationQuoteIndex = quoteIndex;
+    return celebrationQuotes[quoteIndex];
+  }
+
+  function addKitchenCelebrationParticles(count = 20) {
+    for (let index = 0; index < count; index += 1) {
+      const particle = document.createElement('i');
+      const spark = index % 4 === 0;
+      const parsley = index % 3 === 0;
+      particle.className = spark ? 'kitchen-spark' : 'kitchen-herb-particle';
+      if (spark) {
+        particle.textContent = index % 8 === 0 ? '♡' : '✦';
+        particle.style.setProperty('--particle-color', index % 8 === 0 ? '#d88d9a' : '#d1a96f');
+      } else if (parsley) {
+        particle.innerHTML = '<svg viewBox="0 0 34 44" aria-hidden="true"><path d="M17 42V23" fill="none" stroke="#557a4f" stroke-width="2.5" stroke-linecap="round"/><path d="M17 26C8 27 3 20 7 15c-3-5 2-11 8-8 3-7 12-4 11 3 7 0 9 8 4 12 2 7-7 11-13 4Z" fill="currentColor" stroke="#557a4f" stroke-width="1.3"/><path d="m10 16 7 7 7-9M17 23v-11" fill="none" stroke="rgba(238,246,233,.55)" stroke-width="1.2" stroke-linecap="round"/></svg>';
+      } else {
+        particle.innerHTML = '<svg viewBox="0 0 34 44" aria-hidden="true"><path d="M17 42V29" fill="none" stroke="#557a4f" stroke-width="2.5" stroke-linecap="round"/><path d="M17 31C5 25 3 12 10 5c6-6 16-2 17 7 2 9-4 17-10 19Z" fill="currentColor" stroke="#557a4f" stroke-width="1.3"/><path d="M17 29 18 9M17 23l-7-7M18 18l6-5" fill="none" stroke="rgba(238,246,233,.58)" stroke-width="1.2" stroke-linecap="round"/></svg>';
+      }
+      particle.style.setProperty('--x', `${18 + Math.random() * 64}%`);
+      particle.style.setProperty('--drift', `${-90 + Math.random() * 180}px`);
+      particle.style.setProperty('--rotation', `${-180 + Math.random() * 360}deg`);
+      particle.style.setProperty('--delay', `${Math.random() * 240}ms`);
+      particle.style.setProperty('--duration', `${1100 + Math.random() * 700}ms`);
+      particle.style.setProperty('--size', `${16 + Math.random() * 14}px`);
+      particle.style.setProperty('--color', parsley ? '#5f8a59' : index % 2 ? '#719b68' : '#87aa76');
+      kitchenCelebrationLayer.append(particle);
+    }
+  }
+
+  function createKitchenCelebrationStage(illustration) {
+    const stage = document.createElement('div');
+    stage.className = `kitchen-celebration-stage ${illustration.stageClass}`;
+    const image = document.createElement('img');
+    image.className = 'kitchen-celebration-character';
+    image.src = illustration.path;
+    image.alt = '';
+    stage.append(image);
+    return stage;
+  }
+
+  function resetKitchenCelebration() {
+    if (kitchenCelebrationTimer) window.clearTimeout(kitchenCelebrationTimer);
+    kitchenCelebrationLayer.replaceChildren();
+  }
+
+  function showCompletionCelebration() {
+    if (!kitchenCelebrationLayer) return;
+    resetKitchenCelebration();
+    const illustration = completionIllustrations[Math.floor(Math.random() * completionIllustrations.length)];
+    addKitchenCelebrationParticles(illustration.key === 'herbs' ? 38 : 20);
+    const [title, subtitle] = illustration.key === 'coffee'
+      ? ['עכשיו זה זמן להכין כוס קפה טובה... לשני!', 'כי הכנה שסיימנו ראויה להפסקת קפה']
+      : completionMessages[Math.floor(Math.random() * completionMessages.length)];
+    const toast = document.createElement('div');
+    toast.className = 'kitchen-celebration-toast';
+    toast.append(createKitchenCelebrationStage(illustration));
+    const copy = document.createElement('div');
+    copy.className = 'kitchen-celebration-copy';
+    const heading = document.createElement('strong');
+    heading.textContent = title;
+    const detail = document.createElement('span');
+    detail.className = 'kitchen-celebration-detail';
+    detail.textContent = subtitle;
+    const quoteData = randomCelebrationQuote();
+    const quote = document.createElement('blockquote');
+    quote.className = 'kitchen-celebration-quote';
+    quote.textContent = `“${quoteData.text}”`;
+    const citation = document.createElement('cite');
+    citation.textContent = `— ${quoteData.speaker}, ${quoteData.source}`;
+    quote.append(citation);
+    copy.append(heading, detail, quote);
+    toast.append(copy);
+    kitchenCelebrationLayer.append(toast);
+    kitchenCelebrationTimer = window.setTimeout(() => kitchenCelebrationLayer.replaceChildren(), 8300);
+  }
+
+  function showNotDoneCelebration() {
+    if (!kitchenCelebrationLayer) return;
+    resetKitchenCelebration();
+    const toast = document.createElement('div');
+    toast.className = 'kitchen-celebration-toast not-done';
+    toast.append(createKitchenCelebrationStage({
+      path: 'celebration-assets/kawaii-angry-maltese.png',
+      stageClass: 'dog-stage'
+    }));
+    const copy = document.createElement('div');
+    copy.className = 'kitchen-celebration-copy';
+    const heading = document.createElement('strong');
+    heading.textContent = 'טוב, אי אפשר לתכנן הכל בחיים';
+    const detail = document.createElement('span');
+    detail.className = 'kitchen-celebration-detail';
+    detail.textContent = 'אבל מישהו פה עדיין מאוד כועס כי מדובר באוכל';
+    copy.append(heading, detail);
+    toast.append(copy);
+    kitchenCelebrationLayer.append(toast);
+    kitchenCelebrationTimer = window.setTimeout(() => kitchenCelebrationLayer.replaceChildren(), 8300);
+  }
 
   let recipes = [];
   let mealPlans = [];
@@ -3452,6 +3615,7 @@ html>body{padding:0}</style>
           renderWeeklyPlanner();
           renderTodayDashboard();
           setSync('ההכנה הושלמה', 'ready');
+          showCompletionCelebration();
         });
         const reschedule = document.createElement('button');
         reschedule.className = 'btn';
@@ -3477,6 +3641,7 @@ html>body{padding:0}</style>
           renderWeeklyPlanner();
           renderTodayDashboard();
           setSync('ההכנה בוטלה', 'ready');
+          showNotDoneCelebration();
         });
         const relatedRecipe = task.recipe_id ? recipes.find(recipe => recipe.id === task.recipe_id) : null;
         if (relatedRecipe) {
@@ -4336,6 +4501,7 @@ html>body{padding:0}</style>
         task.status = 'completed';
         renderWeeklyPlanner();
         renderTodayDashboard();
+        showCompletionCelebration();
       });
       remove.addEventListener('click', async () => {
         const result = await client.from('preparation_tasks').update({ status: 'cancelled' }).eq('id', task.id).eq('household_id', activeHouseholdId);
@@ -4343,6 +4509,7 @@ html>body{padding:0}</style>
         task.status = 'cancelled';
         renderWeeklyPlanner();
         renderTodayDashboard();
+        showNotDoneCelebration();
       });
       actions.append(scheduleButton, done, remove);
       row.append(info, actions, scheduler);
