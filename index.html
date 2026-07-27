@@ -2568,6 +2568,12 @@ html>body{padding:0}</style>
     return normalizedRecipeText(separateIngredientPreparation(name).name);
   }
 
+  function isAlwaysAvailableIngredient(name) {
+    const canonicalName = canonicalIngredientName(name);
+    return /^(?:מים|מי ברז)(?:\s+(?:קרים|קר|פושרים|רותחים|חמים|מסוננים|לפי הצורך))?$/.test(canonicalName)
+      || /^(?:(?:cold|hot|warm|boiling|tap|filtered)\s+)?water(?:\s+as needed)?$/.test(canonicalName);
+  }
+
   function createSubstitutionGroupSelect(currentValue = '') {
     const select = document.createElement('select');
     select.className = 'form-select ingredient-substitution-group';
@@ -2641,6 +2647,9 @@ html>body{padding:0}</style>
   function ingredientStockMatch(ingredient) {
     const requiredGroup = ingredient.ingredients?.substitution_group;
     const requiredCanonicalName = canonicalIngredientName(ingredient.ingredients?.name);
+    if (isAlwaysAvailableIngredient(requiredCanonicalName)) {
+      return { state: 'ready', substitution: null };
+    }
     const stock = inventoryItems.filter(item => {
       if (!(item.quantity === null || Number(item.quantity) > 0)) return false;
       if (item.ingredient_id === ingredient.ingredient_id) return true;
