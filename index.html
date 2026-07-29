@@ -953,6 +953,19 @@ html>body{padding:0}</style>
   .ingredient-editor-options label { display: flex; gap: 6px; align-items: center; color: var(--muted-foreground); font-size: .88rem; }
   .ingredient-editor-options input[type='checkbox'] { min-height: auto !important; width: auto; }
   .recipe-edit-form { margin-top: 12px; }
+  .recipe-feedback-panel { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 16px; background: #f8f5ee; }
+  .recipe-feedback-form { display: grid; grid-template-columns: minmax(130px, .8fr) minmax(160px, 1fr) minmax(0, 2fr) auto; gap: 8px; align-items: end; }
+  .recipe-feedback-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .recipe-feedback-actions { display: flex; gap: 6px; }
+  .ingredient-dictionary { grid-column: 1 / -1; display: grid; gap: 14px; }
+  .dictionary-summary { display: flex; gap: 8px; flex-wrap: wrap; }
+  .dictionary-pending-list, .dictionary-group-list, .dictionary-alias-list, .dictionary-relation-list { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+  .dictionary-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, .8fr) auto; gap: 8px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: 13px; background: rgba(255, 253, 248, .72); }
+  .dictionary-group-card { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 14px; background: rgba(255, 253, 248, .72); }
+  .dictionary-member-list { display: flex; gap: 6px; flex-wrap: wrap; }
+  .dictionary-member { display: inline-flex; gap: 5px; align-items: center; padding: 4px 8px; border-radius: 999px; background: var(--muted); }
+  .dictionary-member button { min-height: auto !important; padding: 1px 5px !important; }
+  .dictionary-add-form { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr) auto; gap: 8px; align-items: end; }
   .recipe-drawer-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(55, 50, 42, .42); backdrop-filter: blur(3px); }
   .recipe-drawer { box-sizing: border-box; width: min(900px, 100%); max-height: calc(100dvh - 48px); margin-inline: auto; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 26px; background: var(--background); padding: 14px; box-shadow: 0 24px 70px rgba(55, 50, 42, .24); scrollbar-gutter: stable; }
   .recipe-drawer #recipe-detail { display: grid; }
@@ -996,7 +1009,7 @@ html>body{padding:0}</style>
   @keyframes kitchen-whisk-stir { 0% { opacity: 0; transform: translate(13px,-4px) rotate(18deg) scale(.7); } 22% { opacity: 1; transform: translate(-7px,3px) rotate(-18deg) scale(1.04); } 42% { transform: translate(8px,-1px) rotate(15deg) scale(1); } 62% { transform: translate(-7px,3px) rotate(-16deg) scale(1.02); } 82% { transform: translate(5px,0) rotate(10deg) scale(1); } 100% { opacity: 1; transform: translate(0) rotate(0) scale(1); } }
   @keyframes kitchen-float-up { 0% { opacity: 0; transform: translate(0,10px) rotate(0deg) scale(.7); } 15% { opacity: .95; } 100% { opacity: 0; transform: translate(var(--drift),-46vh) rotate(var(--rotation)) scale(1.1); } }
   @keyframes prep-drawer-open { from { opacity: 0; transform: scaleY(.97); } to { opacity: 1; transform: scaleY(1); } }
-  @media (max-width: 640px) { .ingredient-editor-row { grid-template-columns: 1fr 1fr; } .ingredient-editor-row > input:first-child { grid-column: 1 / -1; } .ingredient-editor-options { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) { .ingredient-editor-row { grid-template-columns: 1fr 1fr; } .ingredient-editor-row > input:first-child { grid-column: 1 / -1; } .ingredient-editor-options, .recipe-feedback-form, .dictionary-row, .dictionary-add-form { grid-template-columns: 1fr; } }
   @media (max-width: 720px) {
     #home-food-trial { padding: 10px 10px 30px; }
     #home-food-trial .topline { padding: 20px 18px; border-radius: 21px; }
@@ -2369,6 +2382,12 @@ html>body{padding:0}</style>
   let shoppingDismissals = [];
   let preparationTasks = [];
   let preparationRules = [];
+  let canonicalIngredients = [];
+  let ingredientAliases = [];
+  let substitutionGroups = [];
+  let substitutionGroupMembers = [];
+  let ingredientRelations = [];
+  let ingredientResolutionRequests = [];
   let availabilityByRecipe = new Map();
   let feedbackByRecipe = new Map();
   let ingredientsByRecipe = new Map();
@@ -2599,6 +2618,14 @@ html>body{padding:0}</style>
     return normalizedRecipeText(separateIngredientPreparation(name).name);
   }
 
+  function resolvedIngredientForName(name) {
+    const normalizedName = canonicalIngredientName(name);
+    const canonical = canonicalIngredients.find(item => canonicalIngredientName(item.name) === normalizedName);
+    if (canonical) return canonical;
+    const alias = ingredientAliases.find(item => canonicalIngredientName(item.alias) === normalizedName);
+    return alias?.ingredients || null;
+  }
+
   function normalizedRecipeSearch(value) {
     return canonicalIngredientName(value)
       .replace(/תפו["״']?א/g, 'תפוחי אדמה')
@@ -2662,8 +2689,11 @@ html>body{padding:0}</style>
     select.className = 'form-select ingredient-substitution-group';
     select.setAttribute('aria-label', 'קבוצת תחליפים');
     select.add(new Option('ללא קבוצת תחליפים', ''));
-    substitutionFamilies.forEach(family => select.add(new Option(family.label, family.group)));
-    const knownGroups = new Set(substitutionFamilies.map(family => family.group));
+    const groupOptions = substitutionGroups.length
+      ? substitutionGroups.map(group => ({ group: group.group_key, label: group.name }))
+      : substitutionFamilies;
+    groupOptions.forEach(family => select.add(new Option(family.label, family.group)));
+    const knownGroups = new Set(groupOptions.map(family => family.group));
     const customGroups = new Set(
       [
         ...inventoryItems.map(item => item.ingredients?.substitution_group),
@@ -2730,6 +2760,10 @@ html>body{padding:0}</style>
   function ingredientStockMatch(ingredient) {
     const requiredGroup = ingredient.ingredients?.substitution_group;
     const requiredCanonicalName = canonicalIngredientName(ingredient.ingredients?.name);
+    const approvedRelations = ingredientRelations.filter(relation =>
+      relation.target_ingredient_id === ingredient.ingredient_id
+      || (relation.is_bidirectional && relation.source_ingredient_id === ingredient.ingredient_id)
+    );
     if (isAlwaysAvailableIngredient(requiredCanonicalName)) {
       return { state: 'ready', substitution: null };
     }
@@ -2737,6 +2771,10 @@ html>body{padding:0}</style>
       if (!(item.quantity === null || Number(item.quantity) > 0)) return false;
       if (item.ingredient_id === ingredient.ingredient_id) return true;
       if (requiredCanonicalName && canonicalIngredientName(item.ingredients?.name) === requiredCanonicalName) return true;
+      if (approvedRelations.some(relation =>
+        relation.source_ingredient_id === item.ingredient_id
+        || (relation.is_bidirectional && relation.target_ingredient_id === item.ingredient_id)
+      )) return true;
       return Boolean(
         ingredient.accepts_substitutions
         && requiredGroup
@@ -2746,12 +2784,16 @@ html>body{padding:0}</style>
     if (!stock.length) return { state: 'missing', substitution: null };
     const immediate = stock.find(item => item.locations?.access_level === 'immediate');
     const match = immediate || stock[0];
+    const relation = approvedRelations.find(item =>
+      item.source_ingredient_id === match.ingredient_id
+      || (item.is_bidirectional && item.target_ingredient_id === match.ingredient_id)
+    );
     return {
       state: immediate ? 'ready' : 'retrieve',
       substitution: match.ingredient_id === ingredient.ingredient_id
         || canonicalIngredientName(match.ingredients?.name) === requiredCanonicalName
         ? null
-        : match.ingredients?.name || null
+        : [match.ingredients?.name, relation?.action_text].filter(Boolean).join(' · ') || null
     };
   }
 
@@ -2951,9 +2993,9 @@ html>body{padding:0}</style>
         const links = [];
         for (let index = 0; index < ingredientValues.length; index++) {
           const ingredient = ingredientValues[index];
-          const ingredientId = await ensureIngredient(ingredient.name, ingredient.unit, ingredient.substitutionGroup);
+          const ingredientId = await ensureIngredient(ingredient.name, ingredient.unit, ingredient.substitutionGroup, true);
           for (const alternativeName of ingredient.alternatives || []) {
-            await ensureIngredient(alternativeName, ingredient.unit, ingredient.substitutionGroup);
+            await ensureIngredient(alternativeName, ingredient.unit, ingredient.substitutionGroup, true);
           }
           links.push({
             recipe_id: recipeId,
@@ -3250,9 +3292,9 @@ html>body{padding:0}</style>
         const links = [];
         for (let index = 0; index < ingredientValues.length; index++) {
           const ingredient = ingredientValues[index];
-          const ingredientId = await ensureIngredient(ingredient.name, ingredient.unit, ingredient.substitutionGroup);
+          const ingredientId = await ensureIngredient(ingredient.name, ingredient.unit, ingredient.substitutionGroup, true);
           for (const alternativeName of ingredient.alternatives || []) {
-            await ensureIngredient(alternativeName, ingredient.unit, ingredient.substitutionGroup);
+            await ensureIngredient(alternativeName, ingredient.unit, ingredient.substitutionGroup, true);
           }
           links.push({
             recipe_id: recipe.id,
@@ -3311,6 +3353,9 @@ html>body{padding:0}</style>
         const updatedRecipe = recipes.find(item => item.id === recipe.id);
         if (updatedRecipe) renderRecipeDetail(updatedRecipe);
         setSync('השינויים במתכון נשמרו', 'ready');
+        if (updatedRecipe && window.confirm('רוצים לתעד מה השתנה ולמה?')) {
+          recipeDetail.querySelector('.recipe-feedback-form textarea')?.focus();
+        }
       } catch (error) {
         console.error(error);
         message.textContent = `השינויים לא נשמרו: ${error.message || 'שגיאה'}`;
@@ -3320,6 +3365,130 @@ html>body{padding:0}</style>
       }
     });
     return form;
+  }
+
+  function createRecipeFeedbackPanel(recipe) {
+    const panel = document.createElement('section');
+    panel.className = 'recipe-feedback-panel';
+    const heading = document.createElement('strong');
+    heading.textContent = 'הערות המשפחה ושינויים במתכון';
+    const description = document.createElement('span');
+    description.className = 'text-muted';
+    description.textContent = 'כאן מתעדים מה הבנות חשבו, מה ליאור שינה, ומה עבד טוב יותר ל־T2D.';
+    const list = document.createElement('div');
+    const feedbackItems = feedbackByRecipe.get(recipe.id) || [];
+    if (!feedbackItems.length) {
+      const empty = document.createElement('span');
+      empty.className = 'text-muted';
+      empty.textContent = 'עדיין אין הערות.';
+      list.append(empty);
+    } else {
+      feedbackItems.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'recipe-feedback-row';
+        const copy = document.createElement('div');
+        const typeLabels = {
+          family: 'משוב משפחתי',
+          t2d_adjustment: 'התאמת T2D',
+          recipe_change: 'שינוי במתכון',
+          cooking_note: 'הערת בישול'
+        };
+        const meta = document.createElement('strong');
+        meta.textContent = [item.person_name, typeLabels[item.feedback_type] || 'הערה'].filter(Boolean).join(' · ');
+        const note = document.createElement('div');
+        note.textContent = item.note;
+        copy.append(meta, note);
+        const actions = document.createElement('div');
+        actions.className = 'recipe-feedback-actions';
+        const edit = document.createElement('button');
+        edit.className = 'btn';
+        edit.type = 'button';
+        edit.textContent = 'עריכה';
+        edit.addEventListener('click', async () => {
+          const nextNote = window.prompt('עריכת ההערה', item.note);
+          if (!nextNote?.trim() || nextNote.trim() === item.note) return;
+          const result = await client.from('recipe_feedback').update({ note: nextNote.trim() }).eq('id', item.id).eq('household_id', activeHouseholdId);
+          if (result.error) {
+            setSync('ההערה לא נשמרה', 'error');
+            return;
+          }
+          await refreshRecipeFeedback(recipe.id);
+          renderRecipeDetail(recipe);
+          setSync('ההערה עודכנה', 'ready');
+        });
+        const remove = document.createElement('button');
+        remove.className = 'btn danger-button';
+        remove.type = 'button';
+        remove.textContent = 'מחיקה';
+        remove.addEventListener('click', async () => {
+          if (!window.confirm('למחוק את ההערה הזו?')) return;
+          const result = await client.from('recipe_feedback').delete().eq('id', item.id).eq('household_id', activeHouseholdId);
+          if (result.error) {
+            setSync('ההערה לא נמחקה', 'error');
+            return;
+          }
+          await refreshRecipeFeedback(recipe.id);
+          renderRecipeDetail(recipe);
+          setSync('ההערה נמחקה', 'ready');
+        });
+        actions.append(edit, remove);
+        row.append(copy, actions);
+        list.append(row);
+      });
+    }
+
+    const form = document.createElement('form');
+    form.className = 'recipe-feedback-form';
+    const person = document.createElement('input');
+    person.placeholder = 'מי אמר/ה?';
+    const type = document.createElement('select');
+    [
+      ['family', 'משוב משפחתי'],
+      ['t2d_adjustment', 'התאמת T2D'],
+      ['recipe_change', 'שינוי במתכון'],
+      ['cooking_note', 'הערת בישול']
+    ].forEach(([value, label]) => type.add(new Option(label, value)));
+    const note = document.createElement('textarea');
+    note.rows = 2;
+    note.placeholder = 'למשל: עלמה חשבה שזה חריף מדי / ליאור הפחית אורז והוסיף כרובית';
+    const save = document.createElement('button');
+    save.className = 'btn btn-primary';
+    save.type = 'submit';
+    save.textContent = 'שמירת הערה';
+    form.append(person, type, note, save);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!note.value.trim()) return;
+      save.disabled = true;
+      const result = await client.from('recipe_feedback').insert({
+        household_id: activeHouseholdId,
+        recipe_id: recipe.id,
+        author_user_id: activeUserId,
+        person_name: person.value.trim() || null,
+        sentiment: 'note',
+        feedback_type: type.value,
+        note: note.value.trim()
+      });
+      if (result.error) {
+        save.disabled = false;
+        setSync('ההערה לא נשמרה', 'error');
+        return;
+      }
+      await refreshRecipeFeedback(recipe.id);
+      renderRecipeDetail(recipe);
+      setSync('ההערה נשמרה', 'ready');
+    });
+    panel.append(heading, description, list, form);
+    return panel;
+  }
+
+  async function refreshRecipeFeedback(recipeId) {
+    const result = await client.from('recipe_feedback')
+      .select('id,recipe_id,person_name,sentiment,feedback_type,note,created_at,updated_at')
+      .eq('recipe_id', recipeId)
+      .order('created_at');
+    if (result.error) throw result.error;
+    feedbackByRecipe.set(recipeId, result.data || []);
   }
 
   function renderRecipeDetail(recipe) {
@@ -3420,19 +3589,7 @@ html>body{padding:0}</style>
     }
     recipeDetail.append(ingredientTitle, ingredientList);
 
-    const feedbackItems = feedbackByRecipe.get(recipe.id) || [];
-    if (feedbackItems.length) {
-      const feedbackTitle = document.createElement('strong');
-      feedbackTitle.textContent = 'מה המשפחה אמרה';
-      const feedbackList = document.createElement('ul');
-      feedbackList.className = 'detail-list';
-      feedbackItems.forEach(item => {
-        const listItem = document.createElement('li');
-        listItem.textContent = `${item.person_name ? `${item.person_name}: ` : ''}${item.note}`;
-        feedbackList.append(listItem);
-      });
-      recipeDetail.append(feedbackTitle, feedbackList);
-    }
+    recipeDetail.append(createRecipeFeedbackPanel(recipe));
 
     if (recipe.source_url && /^https?:\/\//i.test(recipe.source_url)) {
       const link = document.createElement('a');
@@ -5124,9 +5281,31 @@ html>body{padding:0}</style>
     document.getElementById('close-picker').onclick = closePlanner;
   }
 
-  async function ensureIngredient(name, unit, substitutionGroup = null) {
-    const existing = inventoryItems.find(item => (item.ingredients?.name || '').trim().toLocaleLowerCase('he') === name.trim().toLocaleLowerCase('he'));
-    if (existing && (!substitutionGroup || existing.ingredients?.substitution_group === substitutionGroup)) return existing.ingredient_id;
+  async function ensureIngredient(name, unit, substitutionGroup = null, requireResolution = false) {
+    const resolved = resolvedIngredientForName(name);
+    if (resolved) {
+      if (substitutionGroup && resolved.substitution_group !== substitutionGroup) {
+        const updateResult = await client.from('ingredients').update({ substitution_group: substitutionGroup }).eq('id', resolved.id);
+        if (updateResult.error) throw updateResult.error;
+        resolved.substitution_group = substitutionGroup;
+      }
+      return resolved.id;
+    }
+    if (requireResolution) {
+      const normalizedName = canonicalIngredientName(name);
+      const existingRequest = ingredientResolutionRequests.find(item => canonicalIngredientName(item.raw_name) === normalizedName);
+      if (!existingRequest) {
+        const requestResult = await client.from('ingredient_resolution_requests').insert({
+          household_id: activeHouseholdId,
+          raw_name: name.trim(),
+          source: 'website',
+          context: { operation: 'recipe_edit' }
+        }).select('*').single();
+        if (requestResult.error && requestResult.error.code !== '23505') throw requestResult.error;
+        if (requestResult.data) ingredientResolutionRequests.push(requestResult.data);
+      }
+      throw new Error(`המצרך "${name.trim()}" מחכה לאישור במילון המצרכים. אשרו אותו במלאי ואז נסו שוב.`);
+    }
     const payload = {
       household_id: activeHouseholdId,
       name: name.trim(),
@@ -5135,6 +5314,7 @@ html>body{padding:0}</style>
     if (substitutionGroup) payload.substitution_group = substitutionGroup;
     const result = await client.from('ingredients').upsert(payload, { onConflict: 'household_id,name' }).select('id').single();
     if (result.error) throw result.error;
+    canonicalIngredients.push({ id: result.data.id, ...payload });
     return result.data.id;
   }
 
@@ -5735,6 +5915,295 @@ html>body{padding:0}</style>
     return form;
   }
 
+  function createIngredientSelect(currentValue = '') {
+    const select = document.createElement('select');
+    select.className = 'form-select';
+    select.add(new Option('בחירת חומר גלם…', ''));
+    canonicalIngredients.forEach(ingredient => select.add(new Option(ingredient.name, ingredient.id)));
+    select.value = currentValue;
+    return select;
+  }
+
+  async function resolvePendingIngredient(request, resolutionType, targetIngredientId = null) {
+    let resolvedIngredientId = targetIngredientId;
+    if (resolutionType === 'canonical') {
+      const ingredientResult = await client.from('ingredients').upsert({
+        household_id: activeHouseholdId,
+        name: request.raw_name
+      }, { onConflict: 'household_id,name' }).select('id').single();
+      if (ingredientResult.error) throw ingredientResult.error;
+      resolvedIngredientId = ingredientResult.data.id;
+    } else {
+      if (!targetIngredientId) throw new Error('צריך לבחור חומר גלם קיים.');
+      const aliasResult = await client.from('ingredient_aliases').upsert({
+        household_id: activeHouseholdId,
+        ingredient_id: targetIngredientId,
+        alias: request.raw_name
+      }, { onConflict: 'household_id,normalized_alias' });
+      if (aliasResult.error) throw aliasResult.error;
+    }
+    const requestResult = await client.from('ingredient_resolution_requests').update({
+      status: 'resolved',
+      resolution_type: resolutionType,
+      resolved_ingredient_id: resolvedIngredientId,
+      resolved_by: activeUserId,
+      resolved_at: new Date().toISOString()
+    }).eq('id', request.id).eq('household_id', activeHouseholdId);
+    if (requestResult.error) throw requestResult.error;
+    await loadHouseholdData();
+    setSync('החלטת המצרך נשמרה ותשמש גם בפעם הבאה', 'ready');
+  }
+
+  function createIngredientDictionarySection() {
+    const section = document.createElement('section');
+    section.className = 'card inventory-section ingredient-dictionary';
+    section.dataset.location = 'dictionary';
+    const header = document.createElement('div');
+    header.className = 'section-head';
+    const copy = document.createElement('div');
+    copy.className = 'compact';
+    const title = document.createElement('h3');
+    title.textContent = 'ניהול שמות ותחליפים';
+    const subtitle = document.createElement('p');
+    subtitle.className = 'text-muted';
+    subtitle.textContent = 'מילון משפחתי אחד לאתר, לאסי ולקלוד. החלטה שנשמרת כאן לא תישאל שוב.';
+    copy.append(title, subtitle);
+    const summary = document.createElement('div');
+    summary.className = 'dictionary-summary';
+    summary.append(
+      createTag(`${ingredientResolutionRequests.length} מחכים לאישור`),
+      createTag(`${ingredientAliases.length} שמות חלופיים`),
+      createTag(`${substitutionGroups.length} קבוצות תחליפים`)
+    );
+    header.append(copy, summary);
+    section.append(header);
+
+    const pendingTitle = document.createElement('strong');
+    pendingTitle.textContent = 'התאמות שמחכות לאישור';
+    const pendingList = document.createElement('div');
+    pendingList.className = 'dictionary-pending-list';
+    if (!ingredientResolutionRequests.length) {
+      const empty = document.createElement('span');
+      empty.className = 'text-muted';
+      empty.textContent = 'אין כרגע שאלות פתוחות — מצוין.';
+      pendingList.append(empty);
+    } else {
+      ingredientResolutionRequests.forEach(request => {
+        const row = document.createElement('div');
+        row.className = 'dictionary-row';
+        const requestCopy = document.createElement('div');
+        const name = document.createElement('strong');
+        name.textContent = request.raw_name;
+        const source = document.createElement('span');
+        source.className = 'text-muted';
+        source.textContent = `נוסף דרך ${request.source === 'claude' ? 'קלוד' : request.source === 'assi' ? 'אסי' : 'האתר'}`;
+        requestCopy.append(name, source);
+        const target = createIngredientSelect(request.proposed_ingredient_id || '');
+        const actions = document.createElement('div');
+        actions.className = 'stock-actions';
+        const alias = document.createElement('button');
+        alias.className = 'btn';
+        alias.type = 'button';
+        alias.textContent = 'זה שם חלופי';
+        alias.addEventListener('click', async () => {
+          try { await resolvePendingIngredient(request, 'alias', target.value); }
+          catch (error) { setSync(error.message || 'ההתאמה לא נשמרה', 'error'); }
+        });
+        const canonical = document.createElement('button');
+        canonical.className = 'btn btn-primary';
+        canonical.type = 'button';
+        canonical.textContent = 'זה מצרך חדש';
+        canonical.addEventListener('click', async () => {
+          try { await resolvePendingIngredient(request, 'canonical'); }
+          catch (error) { setSync(error.message || 'המצרך לא נשמר', 'error'); }
+        });
+        actions.append(alias, canonical);
+        row.append(requestCopy, target, actions);
+        pendingList.append(row);
+      });
+    }
+    section.append(pendingTitle, pendingList);
+
+    const aliasDetails = document.createElement('details');
+    const aliasSummary = document.createElement('summary');
+    aliasSummary.textContent = 'שמות חלופיים';
+    const aliasList = document.createElement('div');
+    aliasList.className = 'dictionary-alias-list';
+    ingredientAliases.forEach(alias => {
+      const row = document.createElement('div');
+      row.className = 'dictionary-row';
+      const label = document.createElement('span');
+      label.textContent = `${alias.alias} ← ${alias.ingredients?.name || ''}`;
+      const spacer = document.createElement('span');
+      const remove = document.createElement('button');
+      remove.className = 'btn danger-button';
+      remove.type = 'button';
+      remove.textContent = 'מחיקה';
+      remove.addEventListener('click', async () => {
+        const result = await client.from('ingredient_aliases').delete().eq('id', alias.id).eq('household_id', activeHouseholdId);
+        if (result.error) return setSync('השם החלופי לא נמחק', 'error');
+        await loadHouseholdData();
+      });
+      row.append(label, spacer, remove);
+      aliasList.append(row);
+    });
+    const aliasForm = document.createElement('form');
+    aliasForm.className = 'dictionary-add-form';
+    const aliasName = document.createElement('input');
+    aliasName.placeholder = 'שם חלופי, למשל בטטות';
+    const aliasTarget = createIngredientSelect();
+    const aliasSave = document.createElement('button');
+    aliasSave.className = 'btn btn-primary';
+    aliasSave.type = 'submit';
+    aliasSave.textContent = 'הוספת שם';
+    aliasForm.append(aliasName, aliasTarget, aliasSave);
+    aliasForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!aliasName.value.trim() || !aliasTarget.value) return;
+      const result = await client.from('ingredient_aliases').upsert({
+        household_id: activeHouseholdId,
+        ingredient_id: aliasTarget.value,
+        alias: aliasName.value.trim()
+      }, { onConflict: 'household_id,normalized_alias' });
+      if (result.error) return setSync('השם החלופי לא נשמר', 'error');
+      await loadHouseholdData();
+    });
+    aliasDetails.append(aliasSummary, aliasList, aliasForm);
+    section.append(aliasDetails);
+
+    const groupDetails = document.createElement('details');
+    const groupSummary = document.createElement('summary');
+    groupSummary.textContent = 'קבוצות תחליפים';
+    const groupList = document.createElement('div');
+    groupList.className = 'dictionary-group-list';
+    substitutionGroups.forEach(group => {
+      const card = document.createElement('div');
+      card.className = 'dictionary-group-card';
+      const groupName = document.createElement('strong');
+      groupName.textContent = group.name;
+      const memberList = document.createElement('div');
+      memberList.className = 'dictionary-member-list';
+      substitutionGroupMembers.filter(member => member.group_id === group.id).forEach(member => {
+        const chip = document.createElement('span');
+        chip.className = 'dictionary-member';
+        chip.append(document.createTextNode(member.ingredients?.name || 'מצרך'));
+        const remove = document.createElement('button');
+        remove.className = 'btn';
+        remove.type = 'button';
+        remove.textContent = '×';
+        remove.addEventListener('click', async () => {
+          const deleteResult = await client.from('substitution_group_members').delete().eq('group_id', group.id).eq('ingredient_id', member.ingredient_id);
+          if (deleteResult.error) return setSync('המצרך לא הוסר מהקבוצה', 'error');
+          await client.from('ingredients').update({ substitution_group: null }).eq('id', member.ingredient_id).eq('substitution_group', group.group_key);
+          await loadHouseholdData();
+        });
+        chip.append(remove);
+        memberList.append(chip);
+      });
+      const addForm = document.createElement('form');
+      addForm.className = 'dictionary-add-form';
+      const ingredientSelect = createIngredientSelect();
+      const note = document.createElement('span');
+      note.className = 'text-muted';
+      note.textContent = 'רק חומרים שבאמת ניתנים להחלפה';
+      const add = document.createElement('button');
+      add.className = 'btn';
+      add.type = 'submit';
+      add.textContent = 'הוספה לקבוצה';
+      addForm.append(ingredientSelect, note, add);
+      addForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (!ingredientSelect.value) return;
+        const memberResult = await client.from('substitution_group_members').upsert({ group_id: group.id, ingredient_id: ingredientSelect.value });
+        if (memberResult.error) return setSync('המצרך לא נוסף לקבוצה', 'error');
+        const ingredientResult = await client.from('ingredients').update({ substitution_group: group.group_key }).eq('id', ingredientSelect.value);
+        if (ingredientResult.error) return setSync('קבוצת התחליפים לא עודכנה', 'error');
+        await loadHouseholdData();
+      });
+      card.append(groupName, memberList, addForm);
+      groupList.append(card);
+    });
+    const newGroupForm = document.createElement('form');
+    newGroupForm.className = 'dictionary-add-form';
+    const newGroupName = document.createElement('input');
+    newGroupName.placeholder = 'שם הקבוצה, למשל ג׳ינג׳ר טרי או קפוא';
+    const newGroupKey = document.createElement('input');
+    newGroupKey.placeholder = 'מפתח קצר באנגלית, למשל ginger';
+    const newGroupSave = document.createElement('button');
+    newGroupSave.className = 'btn btn-primary';
+    newGroupSave.type = 'submit';
+    newGroupSave.textContent = 'יצירת קבוצה';
+    newGroupForm.append(newGroupName, newGroupKey, newGroupSave);
+    newGroupForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!newGroupName.value.trim() || !newGroupKey.value.trim()) return;
+      const result = await client.from('substitution_groups').insert({
+        household_id: activeHouseholdId,
+        name: newGroupName.value.trim(),
+        group_key: newGroupKey.value.trim().toLocaleLowerCase().replace(/\s+/g, '_')
+      });
+      if (result.error) return setSync('הקבוצה לא נוצרה', 'error');
+      await loadHouseholdData();
+    });
+    groupDetails.append(groupSummary, groupList, newGroupForm);
+    section.append(groupDetails);
+
+    const relationDetails = document.createElement('details');
+    const relationSummary = document.createElement('summary');
+    relationSummary.textContent = 'יחסי המרה, למשל לימון → מיץ לימון';
+    const relationList = document.createElement('div');
+    relationList.className = 'dictionary-relation-list';
+    ingredientRelations.forEach(relation => {
+      const row = document.createElement('div');
+      row.className = 'dictionary-row';
+      const label = document.createElement('span');
+      label.textContent = `${relation.source?.name || ''} → ${relation.target?.name || ''}${relation.action_text ? ` · ${relation.action_text}` : ''}`;
+      const spacer = document.createElement('span');
+      const remove = document.createElement('button');
+      remove.className = 'btn danger-button';
+      remove.type = 'button';
+      remove.textContent = 'מחיקה';
+      remove.addEventListener('click', async () => {
+        const result = await client.from('ingredient_relations').delete().eq('id', relation.id).eq('household_id', activeHouseholdId);
+        if (result.error) return setSync('ההמרה לא נמחקה', 'error');
+        await loadHouseholdData();
+      });
+      row.append(label, spacer, remove);
+      relationList.append(row);
+    });
+    const relationForm = document.createElement('form');
+    relationForm.className = 'dictionary-add-form';
+    const relationSource = createIngredientSelect();
+    const relationTarget = createIngredientSelect();
+    const relationActions = document.createElement('div');
+    relationActions.className = 'stock-actions';
+    const action = document.createElement('input');
+    action.placeholder = 'פעולה, למשל לסחוט';
+    const relationSave = document.createElement('button');
+    relationSave.className = 'btn btn-primary';
+    relationSave.type = 'submit';
+    relationSave.textContent = 'שמירת המרה';
+    relationActions.append(action, relationSave);
+    relationForm.append(relationSource, relationTarget, relationActions);
+    relationForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!relationSource.value || !relationTarget.value || relationSource.value === relationTarget.value) return;
+      const result = await client.from('ingredient_relations').upsert({
+        household_id: activeHouseholdId,
+        source_ingredient_id: relationSource.value,
+        target_ingredient_id: relationTarget.value,
+        relation_type: 'derived',
+        action_text: action.value.trim() || null,
+        approved: true
+      }, { onConflict: 'household_id,source_ingredient_id,target_ingredient_id,relation_type' });
+      if (result.error) return setSync('ההמרה לא נשמרה', 'error');
+      await loadHouseholdData();
+    });
+    relationDetails.append(relationSummary, relationList, relationForm);
+    section.append(relationDetails);
+    return section;
+  }
+
   function renderInventory(items) {
     inventoryGrid.replaceChildren();
     inventoryFilters.replaceChildren();
@@ -5758,6 +6227,14 @@ html>body{padding:0}</style>
     leftoversButton.dataset.location = 'leftovers';
     leftoversButton.textContent = `שאריות (${leftovers.length})`;
     inventoryFilters.append(leftoversButton);
+    const dictionaryButton = document.createElement('button');
+    dictionaryButton.className = ingredientResolutionRequests.length ? 'btn btn-primary' : 'btn';
+    dictionaryButton.type = 'button';
+    dictionaryButton.dataset.location = 'dictionary';
+    dictionaryButton.textContent = ingredientResolutionRequests.length
+      ? `שמות ותחליפים (${ingredientResolutionRequests.length})`
+      : 'שמות ותחליפים';
+    inventoryFilters.append(dictionaryButton);
 
     locations.forEach(location => {
       const section = document.createElement('div');
@@ -5788,7 +6265,7 @@ html>body{padding:0}</style>
       section.append(header, addForm, list);
       inventoryGrid.append(section);
     });
-    inventoryGrid.append(createLeftoversSection());
+    inventoryGrid.append(createIngredientDictionarySection(), createLeftoversSection());
 
     inventoryFilters.onclick = event => {
       const button = event.target.closest('button[data-location]');
@@ -5807,10 +6284,10 @@ html>body{padding:0}</style>
     const rangeStart = new Date(previousWeekValues[0]);
     rangeStart.setDate(rangeStart.getDate() - 1);
     const rangeEnd = nextWeekValues[6];
-    const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult, shoppingResult, shoppingDismissalsResult, preparationRulesResult] = await Promise.all([
+    const [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult, shoppingResult, shoppingDismissalsResult, preparationRulesResult, canonicalIngredientsResult, aliasesResult, substitutionGroupsResult, substitutionMembersResult, ingredientRelationsResult, resolutionRequestsResult] = await Promise.all([
       client.from('recipes').select('*').order('title'),
       client.from('recipe_availability').select('*'),
-      client.from('recipe_feedback').select('recipe_id,person_name,sentiment,note,created_at').order('created_at'),
+      client.from('recipe_feedback').select('id,recipe_id,person_name,sentiment,feedback_type,note,created_at,updated_at').order('created_at'),
       client.from('recipe_ingredients').select('recipe_id,ingredient_id,quantity,unit,preparation,is_optional,accepts_substitutions,sort_order,ingredients(name,substitution_group)').order('sort_order'),
       client.from('recipe_tag_links').select('recipe_id,recipe_tags(name,color)'),
       client.from('inventory_items').select('id,ingredient_id,location_id,quantity,unit,is_approximate,stocked_at,frozen_at,best_before,notes,ingredients(name,category,substitution_group),locations(id,name,kind,access_level,sort_order)'),
@@ -5822,9 +6299,15 @@ html>body{padding:0}</style>
       client.from('preparation_tasks').select('*').neq('status', 'cancelled').order('due_at'),
       client.from('shopping_items').select('*').is('purchased_at', null).order('created_at'),
       client.from('shopping_item_dismissals').select('ingredient_id,week_start'),
-      client.from('ingredient_preparation_rules').select('ingredient_pattern,preparation_text,evidence_patterns,mandatory,add_if_missing,sort_order').order('sort_order')
+      client.from('ingredient_preparation_rules').select('ingredient_pattern,preparation_text,evidence_patterns,mandatory,add_if_missing,sort_order').order('sort_order'),
+      client.from('ingredients').select('id,name,category,default_unit,substitution_group').order('name'),
+      client.from('ingredient_aliases').select('id,alias,notes,ingredient_id,ingredients(id,name,substitution_group)').order('alias'),
+      client.from('substitution_groups').select('id,group_key,name,description').order('name'),
+      client.from('substitution_group_members').select('group_id,ingredient_id,notes,ingredients(id,name,substitution_group)'),
+      client.from('ingredient_relations').select('id,relation_type,action_text,is_bidirectional,source_ingredient_id,target_ingredient_id,source:ingredients!ingredient_relations_source_ingredient_id_fkey(id,name),target:ingredients!ingredient_relations_target_ingredient_id_fkey(id,name)'),
+      client.from('ingredient_resolution_requests').select('id,raw_name,source,context,proposed_ingredient_id,confidence,created_at').eq('status', 'pending').order('created_at')
     ]);
-    const failure = [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult, shoppingResult, shoppingDismissalsResult, preparationRulesResult].find(result => result.error);
+    const failure = [recipesResult, availabilityResult, feedbackResult, ingredientsResult, tagsResult, inventoryResult, locationsResult, leftoversResult, occasionsResult, membersResult, mealPlansResult, preparationsResult, shoppingResult, shoppingDismissalsResult, preparationRulesResult, canonicalIngredientsResult, aliasesResult, substitutionGroupsResult, substitutionMembersResult, ingredientRelationsResult, resolutionRequestsResult].find(result => result.error);
     if (failure) throw failure.error;
 
     recipes = recipesResult.data || [];
@@ -5842,6 +6325,12 @@ html>body{padding:0}</style>
     shoppingItems = shoppingResult.data || [];
     shoppingDismissals = shoppingDismissalsResult.data || [];
     preparationRules = preparationRulesResult.data || [];
+    canonicalIngredients = canonicalIngredientsResult.data || [];
+    ingredientAliases = aliasesResult.data || [];
+    substitutionGroups = substitutionGroupsResult.data || [];
+    substitutionGroupMembers = substitutionMembersResult.data || [];
+    ingredientRelations = ingredientRelationsResult.data || [];
+    ingredientResolutionRequests = resolutionRequestsResult.data || [];
     setupRecipeCreator();
     renderRecipeFilters();
     renderRecipes();
