@@ -948,8 +948,8 @@ html>body{padding:0}</style>
   .prep-advanced[hidden] { display: none; }
   .prep-step-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); }
   .prep-step-copy { display: grid; gap: 3px; }
-  .ingredient-editor-row { display: grid; grid-template-columns: minmax(150px, 2fr) minmax(80px, .7fr) minmax(100px, 1fr) auto; gap: 8px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: 12px; }
-  .ingredient-editor-options { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) auto auto; gap: 8px; align-items: center; }
+  .ingredient-editor-row { display: grid; grid-template-columns: minmax(150px, 2fr) minmax(72px, .55fr) minmax(72px, .55fr) minmax(100px, 1fr) auto; gap: 8px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: 12px; }
+  .ingredient-editor-options { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(130px, .8fr) minmax(150px, 1fr) minmax(150px, 1fr) auto auto; gap: 8px; align-items: center; }
   .ingredient-editor-options label { display: flex; gap: 6px; align-items: center; color: var(--muted-foreground); font-size: .88rem; }
   .ingredient-editor-options input[type='checkbox'] { min-height: auto !important; width: auto; }
   .recipe-edit-form { margin-top: 12px; }
@@ -2559,6 +2559,45 @@ html>body{padding:0}</style>
     return Number.isInteger(number) ? String(number) : String(number).replace(/0+$/, '').replace(/\.$/, '');
   }
 
+  function formatIngredientQuantity(item) {
+    if (item?.quantity_text) return item.quantity_text;
+    const minimum = item?.quantity_min ?? item?.quantity;
+    const maximum = item?.quantity_max ?? item?.quantity;
+    if (minimum === null || minimum === undefined) return maximum === null || maximum === undefined ? '' : formatQuantity(maximum);
+    if (maximum === null || maximum === undefined || Number(minimum) === Number(maximum)) return formatQuantity(minimum);
+    return `${formatQuantity(minimum)}–${formatQuantity(maximum)}`;
+  }
+
+  function shoppingQuantity(item) {
+    const value = item?.quantity_max ?? item?.quantity;
+    return value === null || value === undefined ? null : Number(value);
+  }
+
+  function ingredientEditorQuantity(row) {
+    const quantityText = row.querySelector('.ingredient-quantity-text').value.trim() || null;
+    let quantityMin = row.querySelector('.ingredient-quantity-min').value
+      ? Number(row.querySelector('.ingredient-quantity-min').value)
+      : null;
+    let quantityMax = row.querySelector('.ingredient-quantity-max').value
+      ? Number(row.querySelector('.ingredient-quantity-max').value)
+      : null;
+    if (quantityMin === null && quantityMax === null && quantityText) {
+      const normalized = quantityText.replace(/,/g, '.');
+      const range = normalized.match(/(\d+(?:\.\d+)?)\s*(?:[-–—]|עד)\s*(\d+(?:\.\d+)?)/u);
+      const exact = normalized.match(/^(?:כ\s*[-־]?\s*)?(\d+(?:\.\d+)?)$/u);
+      if (range) {
+        quantityMin = Number(range[1]);
+        quantityMax = Number(range[2]);
+      } else if (exact) {
+        quantityMin = Number(exact[1]);
+        quantityMax = Number(exact[1]);
+      }
+    }
+    if (quantityMin === null) quantityMin = quantityMax;
+    if (quantityMax === null) quantityMax = quantityMin;
+    return { quantityMin, quantityMax, quantityText };
+  }
+
   function createTag(text, color) {
     const tag = document.createElement('span');
     tag.className = 'live-tag';
@@ -2817,13 +2856,22 @@ html>body{padding:0}</style>
     name.placeholder = 'מצרך';
     name.value = values.name || '';
     name.required = true;
-    const quantity = document.createElement('input');
-    quantity.className = 'form-control ingredient-quantity';
-    quantity.type = 'number';
-    quantity.min = '0';
-    quantity.step = '0.001';
-    quantity.placeholder = 'כמות';
-    quantity.value = values.quantity || '';
+    const quantityMin = document.createElement('input');
+    quantityMin.className = 'form-control ingredient-quantity-min';
+    quantityMin.type = 'number';
+    quantityMin.min = '0';
+    quantityMin.step = '0.001';
+    quantityMin.placeholder = 'מ־';
+    quantityMin.value = values.quantity_min ?? values.quantity ?? '';
+    const quantityMax = document.createElement('input');
+    quantityMax.className = 'form-control ingredient-quantity-max';
+    quantityMax.type = 'number';
+    quantityMax.min = '0';
+    quantityMax.step = '0.001';
+    quantityMax.placeholder = 'עד';
+    quantityMax.value = values.quantity_max != null && Number(values.quantity_max) !== Number(values.quantity_min ?? values.quantity)
+      ? values.quantity_max
+      : '';
     const unit = document.createElement('input');
     unit.className = 'form-control ingredient-unit';
     unit.placeholder = 'יחידה';
@@ -2832,6 +2880,10 @@ html>body{padding:0}</style>
     preparation.className = 'form-control ingredient-preparation';
     preparation.placeholder = 'הכנה, למשל קצוץ';
     preparation.value = values.preparation || '';
+    const quantityText = document.createElement('input');
+    quantityText.className = 'form-control ingredient-quantity-text';
+    quantityText.placeholder = 'ניסוח הכמות, למשל 4–6 או לפי הטעם';
+    quantityText.value = values.quantity_text || '';
     const substitutionGroup = createSubstitutionGroupSelect(values.substitution_group || '');
     const optionalLabel = document.createElement('label');
     const optional = document.createElement('input');
@@ -2858,8 +2910,8 @@ html>body{padding:0}</style>
     });
     const options = document.createElement('div');
     options.className = 'ingredient-editor-options';
-    options.append(preparation, substitutionGroup, optionalLabel, substitutesLabel);
-    row.append(name, quantity, unit, remove, options);
+    options.append(quantityText, preparation, substitutionGroup, optionalLabel, substitutesLabel);
+    row.append(name, quantityMin, quantityMax, unit, remove, options);
     container.append(row);
   }
 
@@ -2961,7 +3013,7 @@ html>body{padding:0}</style>
       event.preventDefault();
       const ingredientValues = [...ingredientRows.querySelectorAll('.ingredient-editor-row')].map(row => ({
         name: row.querySelector('.ingredient-name').value.trim(),
-        quantity: row.querySelector('.ingredient-quantity').value ? Number(row.querySelector('.ingredient-quantity').value) : null,
+        ...ingredientEditorQuantity(row),
         unit: row.querySelector('.ingredient-unit').value.trim() || null,
         preparation: row.querySelector('.ingredient-preparation').value.trim() || null,
         substitutionGroup: row.querySelector('.ingredient-substitution-group').value.trim() || null,
@@ -3000,7 +3052,10 @@ html>body{padding:0}</style>
           links.push({
             recipe_id: recipeId,
             ingredient_id: ingredientId,
-            quantity: ingredient.quantity,
+            quantity: ingredient.quantityMax ?? ingredient.quantityMin,
+            quantity_min: ingredient.quantityMin ?? ingredient.quantityMax,
+            quantity_max: ingredient.quantityMax ?? ingredient.quantityMin,
+            quantity_text: ingredient.quantityText,
             unit: ingredient.unit,
             preparation: ingredient.preparation,
             is_optional: ingredient.isOptional,
@@ -3236,6 +3291,9 @@ html>body{padding:0}</style>
     currentIngredients.forEach(item => addIngredientEditorRow(ingredientRows, {
       name: item.ingredients?.name,
       quantity: item.quantity,
+      quantity_min: item.quantity_min,
+      quantity_max: item.quantity_max,
+      quantity_text: item.quantity_text,
       unit: item.unit,
       preparation: item.preparation,
       is_optional: item.is_optional,
@@ -3273,7 +3331,7 @@ html>body{padding:0}</style>
       event.preventDefault();
       const ingredientValues = [...ingredientRows.querySelectorAll('.ingredient-editor-row')].map(row => ({
         name: row.querySelector('.ingredient-name').value.trim(),
-        quantity: row.querySelector('.ingredient-quantity').value ? Number(row.querySelector('.ingredient-quantity').value) : null,
+        ...ingredientEditorQuantity(row),
         unit: row.querySelector('.ingredient-unit').value.trim() || null,
         preparation: row.querySelector('.ingredient-preparation').value.trim() || null,
         substitutionGroup: row.querySelector('.ingredient-substitution-group').value.trim() || null,
@@ -3299,7 +3357,10 @@ html>body{padding:0}</style>
           links.push({
             recipe_id: recipe.id,
             ingredient_id: ingredientId,
-            quantity: ingredient.quantity,
+            quantity: ingredient.quantityMax ?? ingredient.quantityMin,
+            quantity_min: ingredient.quantityMin ?? ingredient.quantityMax,
+            quantity_max: ingredient.quantityMax ?? ingredient.quantityMin,
+            quantity_text: ingredient.quantityText,
             unit: ingredient.unit,
             preparation: ingredient.preparation,
             is_optional: ingredient.isOptional,
@@ -3575,7 +3636,7 @@ html>body{padding:0}</style>
         ? '(לא חובה)'
         : substitutionNote
           || (stockMatch.state === 'missing' ? '— חסר' : stockMatch.state === 'retrieve' ? '— צריך להביא מהמחסן' : '');
-      listItem.textContent = [formatQuantity(item.quantity), item.unit, item.ingredients?.name, item.preparation, substitutionPermission, stockNote].filter(Boolean).join(' ');
+      listItem.textContent = [formatIngredientQuantity(item), item.unit, item.ingredients?.name, item.preparation, substitutionPermission, stockNote].filter(Boolean).join(' ');
       if (item.is_optional) listItem.className = 'ingredient-optional';
       else if (stockMatch.state === 'missing') listItem.className = 'ingredient-missing';
       else if (stockMatch.state === 'retrieve') listItem.className = 'ingredient-retrieve';
@@ -5342,8 +5403,9 @@ html>body{padding:0}</style>
           missing.set(key, { ingredientId: item.ingredient_id, name: item.ingredients?.name || 'מצרך', quantity: 0, hasQuantity: false, unit: item.unit || '', recipes: new Set() });
         }
         const entry = missing.get(key);
-        if (item.quantity !== null) {
-          entry.quantity += Number(item.quantity);
+        const requiredQuantity = shoppingQuantity(item);
+        if (requiredQuantity !== null) {
+          entry.quantity += requiredQuantity;
           entry.hasQuantity = true;
         }
         if (source.title) entry.recipes.add(source.title);
@@ -6288,7 +6350,7 @@ html>body{padding:0}</style>
       client.from('recipes').select('*').order('title'),
       client.from('recipe_availability').select('*'),
       client.from('recipe_feedback').select('id,recipe_id,person_name,sentiment,feedback_type,note,created_at,updated_at').order('created_at'),
-      client.from('recipe_ingredients').select('recipe_id,ingredient_id,quantity,unit,preparation,is_optional,accepts_substitutions,sort_order,ingredients(name,substitution_group)').order('sort_order'),
+      client.from('recipe_ingredients').select('recipe_id,ingredient_id,quantity,quantity_min,quantity_max,quantity_text,unit,preparation,is_optional,accepts_substitutions,sort_order,ingredients(name,substitution_group)').order('sort_order'),
       client.from('recipe_tag_links').select('recipe_id,recipe_tags(name,color)'),
       client.from('inventory_items').select('id,ingredient_id,location_id,quantity,unit,is_approximate,stocked_at,frozen_at,best_before,notes,ingredients(name,category,substitution_group),locations(id,name,kind,access_level,sort_order)'),
       client.from('locations').select('id,name,kind,access_level,sort_order').order('sort_order'),
