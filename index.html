@@ -946,8 +946,17 @@ html>body{padding:0}</style>
   .prep-proposal-copy { display: grid; gap: 3px; }
   .prep-advanced { display: grid; gap: 8px; }
   .prep-advanced[hidden] { display: none; }
+  .prep-time-question { display: grid; gap: 8px; padding: 10px; border-radius: 12px; background: rgba(255, 253, 248, .72); }
+  .prep-quick-times { display: flex; gap: 7px; flex-wrap: wrap; }
+  .prep-quick-times .btn.is-selected { color: #3f573d; border-color: #91a58b; background: #e8eee3; }
+  .prep-time-details { display: grid; gap: 8px; }
+  .prep-time-details[hidden] { display: none; }
   .prep-step-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); }
   .prep-step-copy { display: grid; gap: 3px; }
+  .today-week-shortcut { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 12px; align-items: center; min-height: auto; padding: 12px 16px; }
+  .today-week-shortcut-copy { display: grid; gap: 2px; }
+  .meal-choice-actions { display: flex; gap: 6px; min-width: 0; }
+  .meal-choice-actions .meal-choice-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .ingredient-editor-row { display: grid; grid-template-columns: minmax(150px, 2fr) minmax(72px, .55fr) minmax(72px, .55fr) minmax(100px, 1fr) auto; gap: 8px; align-items: center; padding: 10px; border: 1px solid var(--border); border-radius: 12px; }
   .ingredient-editor-options { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(130px, .8fr) minmax(150px, 1fr) minmax(150px, 1fr) auto auto; gap: 8px; align-items: center; }
   .ingredient-editor-options label { display: flex; gap: 6px; align-items: center; color: var(--muted-foreground); font-size: .88rem; }
@@ -1030,6 +1039,10 @@ html>body{padding:0}</style>
     .recipe-row-actions { justify-content: stretch; }
     .recipe-row-actions .btn { flex: 1; }
     .prep-step-row { grid-template-columns: 1fr; }
+    .today-week-shortcut { align-items: stretch; flex-direction: column; }
+    .today-week-shortcut .btn { align-self: stretch; }
+    .meal-choice-actions { flex-wrap: wrap; }
+    .meal-choice-actions .meal-choice-main { flex-basis: 100%; }
   }
   @media (prefers-reduced-motion: reduce) { .kitchen-celebration-layer *, .kitchen-celebration-layer *::before, .kitchen-celebration-layer *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; } }
 </style>
@@ -4174,24 +4187,17 @@ html>body{padding:0}</style>
         editor.className = 'prep-inline';
         editor.style.gridColumn = '1 / -1';
         editor.hidden = true;
-        const scheduledLabel = document.createElement('label');
-        scheduledLabel.className = 'form-label';
-        scheduledLabel.textContent = 'מתי נעשה את ההכנה';
         const scheduled = document.createElement('input');
         scheduled.className = 'form-control';
         scheduled.type = 'datetime-local';
         scheduled.required = true;
         scheduled.value = dateTimeLocalValue(task.scheduled_for || task.due_at);
-        scheduledLabel.append(scheduled);
-        const dueLabel = document.createElement('label');
-        dueLabel.className = 'form-label';
-        dueLabel.textContent = 'מועד אחרון';
         const dueInput = document.createElement('input');
         dueInput.className = 'form-control';
         dueInput.type = 'datetime-local';
         dueInput.required = true;
         dueInput.value = dateTimeLocalValue(task.due_at);
-        dueLabel.append(dueInput);
+        const timingControls = createPreparationTimingControls(scheduled, dueInput, task.scheduled_for || task.due_at);
         const editorMessage = document.createElement('p');
         editorMessage.className = 'text-destructive';
         editorMessage.hidden = true;
@@ -4207,10 +4213,9 @@ html>body{padding:0}</style>
         closeEditor.textContent = 'סגירה';
         closeEditor.addEventListener('click', () => { editor.hidden = true; });
         editorActions.append(saveTime, closeEditor);
-        editor.append(scheduledLabel, dueLabel, editorMessage, editorActions);
+        editor.append(timingControls, editorMessage, editorActions);
         reschedule.addEventListener('click', () => {
           editor.hidden = !editor.hidden;
-          if (!editor.hidden) scheduled.focus();
         });
         editor.addEventListener('submit', async event => {
           event.preventDefault();
@@ -4260,7 +4265,25 @@ html>body{padding:0}</style>
     const today = localDateString(todayValue);
     const plans = mealPlans.filter(plan => plan.planned_date === today);
     const breakfast = plans.filter(plan => plan.meal_slot.startsWith('breakfast') || plan.meal_slot === 'family_breakfast');
+    const restOfWeek = mealPlans.filter(plan => plan.planned_date > today && plan.planned_date <= localDateString(currentWeekDates().at(-1))).length;
+    const weekShortcut = document.createElement('div');
+    weekShortcut.className = 'card today-week-shortcut';
+    const weekShortcutCopy = document.createElement('div');
+    weekShortcutCopy.className = 'today-week-shortcut-copy';
+    const weekShortcutTitle = document.createElement('strong');
+    weekShortcutTitle.textContent = 'מה מתוכנן בהמשך השבוע?';
+    const weekShortcutDetails = document.createElement('span');
+    weekShortcutDetails.className = 'text-muted';
+    weekShortcutDetails.textContent = restOfWeek ? `${restOfWeek} ארוחות מתוכננות מחכות בהמשך` : 'אפשר להמשיך לתכנן את שאר השבוע';
+    weekShortcutCopy.append(weekShortcutTitle, weekShortcutDetails);
+    const weekShortcutButton = document.createElement('button');
+    weekShortcutButton.className = 'btn';
+    weekShortcutButton.type = 'button';
+    weekShortcutButton.textContent = 'פתיחת השבוע';
+    weekShortcutButton.addEventListener('click', openWeekView);
+    weekShortcut.append(weekShortcutCopy, weekShortcutButton);
     todayGrid.replaceChildren(
+      weekShortcut,
       createTodayCard('בוקר', breakfast),
       createTodayCard('צהריים', plans.filter(plan => plan.meal_slot === 'lunch')),
       createTodayCard('ערב', plans.filter(plan => plan.meal_slot === 'dinner'))
@@ -4479,6 +4502,89 @@ html>body{padding:0}</style>
     return new Date(date.getTime() - offset).toISOString().slice(0, 16);
   }
 
+  function preparationTimeText(value) {
+    return new Intl.DateTimeFormat('he-IL', {
+      weekday: 'long', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit'
+    }).format(new Date(value));
+  }
+
+  function createPreparationTimingControls(scheduled, due, suggestedDate) {
+    const shell = document.createElement('div');
+    shell.className = 'prep-time-question';
+    const heading = document.createElement('strong');
+    heading.textContent = 'מתי נוח לעשות את זה?';
+    const deadline = document.createElement('span');
+    deadline.className = 'text-muted';
+    deadline.textContent = `כדאי לסיים עד ${preparationTimeText(due.value)}`;
+    const quickTimes = document.createElement('div');
+    quickTimes.className = 'prep-quick-times';
+    const exactDetails = document.createElement('div');
+    exactDetails.className = 'prep-time-details';
+    exactDetails.hidden = true;
+    const scheduledLabel = document.createElement('label');
+    scheduledLabel.className = 'form-label';
+    scheduledLabel.textContent = 'בחירת תאריך ושעה';
+    scheduledLabel.append(scheduled);
+    const dueToggle = document.createElement('button');
+    dueToggle.className = 'btn btn-ghost';
+    dueToggle.type = 'button';
+    dueToggle.textContent = 'שינוי המועד האחרון';
+    const dueLabel = document.createElement('label');
+    dueLabel.className = 'form-label';
+    dueLabel.textContent = 'מועד אחרון';
+    dueLabel.hidden = true;
+    dueLabel.append(due);
+    dueToggle.addEventListener('click', () => {
+      dueLabel.hidden = !dueLabel.hidden;
+      dueToggle.textContent = dueLabel.hidden ? 'שינוי המועד האחרון' : 'הסתרת המועד האחרון';
+    });
+    due.addEventListener('change', () => { deadline.textContent = `כדאי לסיים עד ${preparationTimeText(due.value)}`; });
+    exactDetails.append(scheduledLabel, dueToggle, dueLabel);
+
+    const now = new Date();
+    const todayEvening = new Date();
+    todayEvening.setHours(19, 0, 0, 0);
+    const tomorrowMorning = new Date();
+    tomorrowMorning.setDate(tomorrowMorning.getDate() + 1);
+    tomorrowMorning.setHours(9, 0, 0, 0);
+    const tomorrowEvening = new Date(tomorrowMorning);
+    tomorrowEvening.setHours(19, 0, 0, 0);
+    const presets = [
+      ['לפי ההצעה', new Date(suggestedDate)],
+      ['היום בערב', todayEvening],
+      ['מחר בבוקר', tomorrowMorning],
+      ['מחר בערב', tomorrowEvening]
+    ].filter(([_label, date], index) => index === 0 || (date > now && date <= new Date(due.value)));
+    const markSelected = selectedButton => {
+      quickTimes.querySelectorAll('.btn').forEach(button => button.classList.toggle('is-selected', button === selectedButton));
+    };
+    presets.forEach(([label, date], index) => {
+      const button = document.createElement('button');
+      button.className = 'btn';
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', () => {
+        scheduled.value = dateTimeLocalValue(date);
+        exactDetails.hidden = true;
+        markSelected(button);
+      });
+      if (index === 0 && dateTimeLocalValue(date) === scheduled.value) button.classList.add('is-selected');
+      quickTimes.append(button);
+    });
+    const exact = document.createElement('button');
+    exact.className = 'btn';
+    exact.type = 'button';
+    exact.textContent = 'זמן אחר…';
+    exact.addEventListener('click', () => {
+      exactDetails.hidden = false;
+      markSelected(exact);
+      scheduled.focus();
+    });
+    quickTimes.append(exact);
+    shell.append(heading, deadline, quickTimes, exactDetails);
+    return shell;
+  }
+
   function suggestedPreparationDeadline(plan) {
     const date = new Date(`${plan.planned_date}T12:00:00`);
     if (plan.meal_slot === 'breakfast_adults' || plan.meal_slot === 'breakfast_children' || plan.meal_slot === 'family_breakfast') {
@@ -4508,18 +4614,18 @@ html>body{padding:0}</style>
     proposalTitle.textContent = defaultTitle;
     const proposalTime = document.createElement('span');
     proposalTime.className = 'text-muted';
-    proposalTime.textContent = `הצעה: ${new Intl.DateTimeFormat('he-IL', { weekday: 'long', hour: '2-digit', minute: '2-digit' }).format(proposedScheduled)} · מועד אחרון זהה`;
+    proposalTime.textContent = `כדאי לסיים עד ${preparationTimeText(proposedDue)}`;
     proposalCopy.append(proposalTitle, proposalTime);
     const proposalActions = document.createElement('div');
     proposalActions.className = 'stock-actions';
     const save = document.createElement('button');
     save.className = 'btn btn-primary';
     save.type = 'submit';
-    save.textContent = existingTask ? 'שמירת השינוי' : 'אישור ההצעה';
+    save.textContent = existingTask ? 'שמירת השינוי' : 'קביעה לפי ההצעה';
     const change = document.createElement('button');
     change.className = 'btn';
     change.type = 'button';
-    change.textContent = 'שינוי זמן או פרטים';
+    change.textContent = 'בחירת זמן אחר';
     proposalActions.append(save, change);
     proposal.append(proposalCopy, proposalActions);
 
@@ -4531,27 +4637,17 @@ html>body{padding:0}</style>
     title.value = defaultTitle;
     title.required = true;
     title.setAttribute('aria-label', 'שם שלב ההכנה');
-    const times = document.createElement('div');
-    times.className = 'viz-controls';
-    const scheduledLabel = document.createElement('label');
-    scheduledLabel.className = 'form-label';
-    scheduledLabel.textContent = 'מתי נעשה את ההכנה';
     const scheduled = document.createElement('input');
     scheduled.className = 'form-control';
     scheduled.type = 'datetime-local';
     scheduled.value = dateTimeLocalValue(proposedScheduled);
     scheduled.required = true;
-    scheduledLabel.append(scheduled);
-    const dueLabel = document.createElement('label');
-    dueLabel.className = 'form-label';
-    dueLabel.textContent = 'מועד אחרון (אפשרויות נוספות)';
     const due = document.createElement('input');
     due.className = 'form-control';
     due.type = 'datetime-local';
     due.value = dateTimeLocalValue(proposedDue);
     due.required = true;
-    dueLabel.append(due);
-    times.append(scheduledLabel, dueLabel);
+    const times = createPreparationTimingControls(scheduled, due, proposedScheduled);
     const notes = document.createElement('textarea');
     notes.className = 'form-control';
     notes.rows = 2;
@@ -4568,7 +4664,7 @@ html>body{padding:0}</style>
     cancel.textContent = 'סגירת השינוי';
     cancel.addEventListener('click', () => {
       advanced.hidden = true;
-      change.textContent = 'שינוי זמן או פרטים';
+      change.textContent = 'בחירת זמן אחר';
     });
     actions.append(cancel);
     if (existingTask) {
@@ -4591,8 +4687,7 @@ html>body{padding:0}</style>
     form.append(proposal, advanced);
     change.addEventListener('click', () => {
       advanced.hidden = !advanced.hidden;
-      change.textContent = advanced.hidden ? 'שינוי זמן או פרטים' : 'הסתרת השינוי';
-      if (!advanced.hidden) scheduled.focus();
+      change.textContent = advanced.hidden ? 'בחירת זמן אחר' : 'הסתרת האפשרויות';
     });
     form.addEventListener('submit', async event => {
       event.preventDefault();
@@ -4645,12 +4740,27 @@ html>body{padding:0}</style>
     slotLabel.textContent = label;
     const plan = planFor(date, slot);
     const recipe = recipeForPlan(plan);
+    const choiceActions = document.createElement('div');
+    choiceActions.className = 'meal-choice-actions';
     const choose = document.createElement('button');
-    choose.className = `btn${plan ? ' btn-primary' : ''}`;
+    choose.className = `btn meal-choice-main${plan ? ' btn-primary' : ''}`;
     choose.type = 'button';
     choose.textContent = recipe?.title || plan?.free_text || 'בחירת ארוחה';
-    choose.addEventListener('click', () => openPlanner(date, slot, dayType, label));
-    row.append(slotLabel, choose);
+    choose.addEventListener('click', () => {
+      if (recipe) openRecipeDrawer(recipe);
+      else openPlanner(date, slot, dayType, label);
+    });
+    choiceActions.append(choose);
+    if (plan) {
+      const changeMeal = document.createElement('button');
+      changeMeal.className = 'btn';
+      changeMeal.type = 'button';
+      changeMeal.textContent = 'שינוי';
+      changeMeal.setAttribute('aria-label', `שינוי הארוחה ${label}`);
+      changeMeal.addEventListener('click', () => openPlanner(date, slot, dayType, label));
+      choiceActions.append(changeMeal);
+    }
+    row.append(slotLabel, choiceActions);
     if (plan) {
       const clear = document.createElement('button');
       clear.className = 'btn btn-ghost';
