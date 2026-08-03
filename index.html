@@ -2810,22 +2810,26 @@ html>body{padding:0}</style>
   }
 
   function ingredientStockMatch(ingredient) {
-    const requiredGroup = ingredient.ingredients?.substitution_group;
+    const resolvedRequired = resolvedIngredientForName(ingredient.ingredients?.name);
+    const requiredIngredientId = resolvedRequired?.id || ingredient.ingredient_id;
+    const requiredGroup = resolvedRequired?.substitution_group || ingredient.ingredients?.substitution_group;
     const requiredCanonicalName = canonicalIngredientName(ingredient.ingredients?.name);
     const approvedRelations = ingredientRelations.filter(relation =>
-      relation.target_ingredient_id === ingredient.ingredient_id
-      || (relation.is_bidirectional && relation.source_ingredient_id === ingredient.ingredient_id)
+      relation.target_ingredient_id === requiredIngredientId
+      || (relation.is_bidirectional && relation.source_ingredient_id === requiredIngredientId)
     );
     if (isAlwaysAvailableIngredient(requiredCanonicalName)) {
       return { state: 'ready', substitution: null };
     }
     const stock = inventoryItems.filter(item => {
       if (!(item.quantity === null || Number(item.quantity) > 0)) return false;
-      if (item.ingredient_id === ingredient.ingredient_id) return true;
+      const resolvedStock = resolvedIngredientForName(item.ingredients?.name);
+      const stockIngredientId = resolvedStock?.id || item.ingredient_id;
+      if (stockIngredientId === requiredIngredientId) return true;
       if (requiredCanonicalName && canonicalIngredientName(item.ingredients?.name) === requiredCanonicalName) return true;
       if (approvedRelations.some(relation =>
-        relation.source_ingredient_id === item.ingredient_id
-        || (relation.is_bidirectional && relation.target_ingredient_id === item.ingredient_id)
+        relation.source_ingredient_id === stockIngredientId
+        || (relation.is_bidirectional && relation.target_ingredient_id === stockIngredientId)
       )) return true;
       return Boolean(
         ingredient.accepts_substitutions
@@ -2836,13 +2840,15 @@ html>body{padding:0}</style>
     if (!stock.length) return { state: 'missing', substitution: null };
     const immediate = stock.find(item => item.locations?.access_level === 'immediate');
     const match = immediate || stock[0];
+    const resolvedMatch = resolvedIngredientForName(match.ingredients?.name);
+    const matchIngredientId = resolvedMatch?.id || match.ingredient_id;
     const relation = approvedRelations.find(item =>
-      item.source_ingredient_id === match.ingredient_id
-      || (item.is_bidirectional && item.target_ingredient_id === match.ingredient_id)
+      item.source_ingredient_id === matchIngredientId
+      || (item.is_bidirectional && item.target_ingredient_id === matchIngredientId)
     );
     return {
       state: immediate ? 'ready' : 'retrieve',
-      substitution: match.ingredient_id === ingredient.ingredient_id
+      substitution: matchIngredientId === requiredIngredientId
         || canonicalIngredientName(match.ingredients?.name) === requiredCanonicalName
         ? null
         : [match.ingredients?.name, relation?.action_text].filter(Boolean).join(' · ') || null
